@@ -5,7 +5,6 @@ const api = axios.create({
   baseURL: 'https://pga.cigel.com.br:8095/',
   //baseURL: 'http://10.0.0.158:8091/',
   //baseURL: 'https://localhost:8095/',
-  timeout: 35000,
   headers: {
     'Content-type': 'application/json',
   },
@@ -46,10 +45,15 @@ api.interceptors.response.use(
   },
   (error) => {
     try {
+      const isTimeout =
+        error?.code === 'ECONNABORTED' ||
+        String(error?.message || '').toLowerCase().includes('timeout');
       const isNetworkError =
         !error?.response ||
         error?.code === 'ECONNABORTED' ||
         String(error?.message || '').toLowerCase().includes('network error');
+      (error as any).isTimeout = !!isTimeout;
+      (error as any).isNetworkError = !!isNetworkError;
       const evt = new CustomEvent('api-status', {
         detail: { ok: !isNetworkError, status: error?.response?.status || 0 },
       });

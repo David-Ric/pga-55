@@ -216,6 +216,7 @@ export default function AreaColaborador() {
   const [parceiroCnpj, setParceiroCnpj] = useState<string>('');
   const [parceiroNome, setParceiroNome] = useState<string>('');
   const [showEnviarStatus, setShowEnviarStatus] = useState(false);
+  const [enviarStatusIsDelete, setEnviarStatusIsDelete] = useState(false);
   const [enviarStatusMsg, setEnviarStatusMsg] = useState('');
   const [enviarStatusErro, setEnviarStatusErro] = useState(false);
 
@@ -3752,6 +3753,11 @@ ORDER BY 1,3`;
                             }
                             setListaPendEnvio((prev) => prev.filter((x: any) => String(x?.palMPV) !== String(palmpvToCancel)));
                             setShowConfirmCancel(false);
+                            setShowVisualizarPend(false);
+                            setEnviarStatusErro(false);
+                            setEnviarStatusMsg('Pedido excluído com sucesso!!!');
+                            setEnviarStatusIsDelete(true);
+                            setShowEnviarStatus(true);
                           } finally {
                             setCancelLoading(false);
                           }
@@ -3787,6 +3793,7 @@ ORDER BY 1,3`;
                               setEnviarLoading(true);
                               setEnviarStatusErro(false);
                               setEnviarStatusMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+                              setEnviarStatusIsDelete(false);
                               setShowEnviarStatus(true);
                               try {
                                 await api.post('/api/CabecalhoPedidoVenda', {
@@ -4034,7 +4041,7 @@ ORDER BY 1,3`;
                 </Modal>
                 <Modal className="modal-confirmerror" show={showEnviarStatus} onHide={() => setShowEnviarStatus(false)} backdrop="static">
                   <Modal.Body>
-                    <img id="logoSankhya" src={logoSankhya} alt="" />
+                    <img id="logoSankhya" src={enviarStatusIsDelete ? logoAlyne : logoSankhya} alt="" />
                     <h1 style={{ marginTop: 15 }}></h1>
                     <h1 style={{ marginTop: 15, color: enviarStatusErro ? 'red' : undefined }}>{enviarStatusMsg}</h1>
                     <h1 style={{ marginTop: 15 }}></h1>

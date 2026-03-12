@@ -605,7 +605,7 @@ export interface ICa {
   versao: string;
 }
 
-export default function PedidoVendas() {
+function PedidoVendas() {
   const history = useNavigate();
   const location = useLocation();
   let [user, setUser] = useState('');
@@ -657,6 +657,7 @@ export default function PedidoVendas() {
   let [OptinosNegocia, setOptinosNegocia] = useState<iDataSelect[]>([]);
   const [OptinosEmpresa, setOptinosEmpresa] = useState<iDataSelect[]>([]);
   const [promotorPesquisa, setPromotorPesquisa] = useState<iDataSelect[]>([]);
+  const [promotorLoading, setPromotorLoading] = useState(false);
 
   let [clienteSelecionado, setClienteSelecionado] = useState<iParceir | null>(
     null
@@ -742,7 +743,6 @@ export default function PedidoVendas() {
           if (pedidoPalmpvSel) {
             setpalMPVEscolhido(String(pedidoPalmpvSel));
             palMPVEscolhido = String(pedidoPalmpvSel);
-            await GetPedidoVendaIdModal(String(pedidoPalmpvSel), Number(pedidoIdSel));
           }
         })();
       }
@@ -765,11 +765,20 @@ export default function PedidoVendas() {
   const handleCloselistaPedidos = () => setShowlistaPedidos(false);
   const [showlistaPedidosSelec, setShowlistaPedidosSelec] = useState(false);
   const [mobileListaTab, setMobileListaTab] = useState<'api' | 'local'>('api');
+  const [listaLoading, setListaLoading] = useState(false);
+  const [mostrarTelaPedidoPrincipal, setMostrarTelaPedidoPrincipal] = useState(false);
 
   useEffect(() => {
     if (isMobile && showlistaPedidos) {
       setPaginaList(1);
-      GetListaCabecalho();
+      (async () => {
+        setListaLoading(true);
+        try {
+          await GetListaCabecalho();
+        } finally {
+          setListaLoading(false);
+        }
+      })();
     }
   }, [mobileListaTab]);
 
@@ -777,6 +786,72 @@ export default function PedidoVendas() {
     setmodalList(false);
     modalList = false;
     setShowlistaPedidosSelec(false);
+    try {
+      localStorage.setItem('PedidoAbrirModalSelec', 'false');
+    } catch {}
+  }
+  async function GetitensPedidoVendaIdListaApiPorId(pedidoId: number) {
+    setSucess(70);
+    sucess = 70;
+    window.scrollTo(0, 0);
+    setItensPedidoSelecionado([]);
+    itensPedidoSelecionado = [];
+    setItensPedidoSelecionadoList([]);
+    itensPedidoSelecionadoList = [];
+    await api
+      .get(
+        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId}`
+      )
+      .then((resp) => {
+        const itensVindoGet: iItemPedidoVenda[] = resp?.data?.data ?? [];
+        setSucess(100);
+        sucess = 100;
+        setItensPedidoSelecionadoList(itensVindoGet);
+        itensPedidoSelecionadoList = itensVindoGet;
+        setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
+        totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+        setItensPedidoSelecionado(
+          itensVindoGet.slice(
+            (paginaItens - 1) * qtdePaginaItens,
+            paginaItens * qtdePaginaItens
+          ) || []
+        );
+        itensPedidoSelecionado =
+          itensVindoGet.slice(
+            (paginaItens - 1) * qtdePaginaItens,
+            paginaItens * qtdePaginaItens
+          ) || [];
+        let somaTotalIpiGet = 0;
+        itensVindoGet.forEach((item: any) => {
+          const valorCalculado = item?.produto?.aliIpi
+            ? item.valTotal + item.valTotal * (item.produto?.aliIpi / 100)
+            : item.valTotal;
+          somaTotalIpiGet += valorCalculado;
+        });
+        setValorPedidoSelecionado(
+          itensVindoGet.reduce(
+            (accumulator: any, item: any) => accumulator + item.valTotal,
+            0
+          )
+        );
+        valorPedidoSelecionado = itensVindoGet.reduce(
+          (accumulator: any, item: any) => accumulator + item.valTotal,
+          0
+        );
+        setIpiEscolhido(somaTotalIpiGet);
+        IpiEscolhido = somaTotalIpiGet;
+        if (modalList) {
+          setShowMensageLoading(false);
+          setPesquisaPedido(true);
+          pesquisaPedido = true;
+        } else {
+          setShowMensageLoading(false);
+        }
+      })
+      .catch(() => {
+        setLoading(false);
+        setShowMensageLoading(false);
+      });
   }
   function carregarNaturezaPadrao(tipoId: string | number) {
     try {
@@ -1116,7 +1191,7 @@ export default function PedidoVendas() {
     GetListaCabecalho();
   }, [paginaList]);
 
-  async function GetListaCabecalho() {
+  async function GetListaCabecalho(tabOverride?: 'api' | 'local') {
     window.scrollTo(0, 0);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
@@ -1125,7 +1200,7 @@ export default function PedidoVendas() {
     console.log('entrou na busca', searchList);
     setCabecalhoPesquisa([]);
     cabecalhoPesquisa = [];
-    const tabAtual = isMobile ? mobileListaTab : 'api';
+    const tabAtual = isMobile ? (tabOverride ?? mobileListaTab) : 'api';
     if (tabAtual === 'api') {
       await api
 
@@ -1213,6 +1288,21 @@ export default function PedidoVendas() {
       }
     }
   }
+  useEffect(() => {
+    (async () => {
+      if (showlistaPedidos && isMobile) {
+        setListaLoading(true);
+        const currentTab = mobileListaTab;
+        try {
+          await GetListaCabecalho('api');
+          await GetListaCabecalho('local');
+          await GetListaCabecalho(currentTab);
+        } finally {
+          setListaLoading(false);
+        }
+      }
+    })();
+  }, [showlistaPedidos]);
 
   async function GetListaCabecalho2() {
     setCabecalhoPesquisa([]);
@@ -2100,7 +2190,14 @@ export default function PedidoVendas() {
 
   const handleCloseMensageSankhya = () => {
     setShowMensageSankhya(false);
-    window.location.reload();
+    try {
+      const iniciouRecebimento = localStorage.getItem('RecebendoDadosModal') === 'true';
+      const recebendo = localStorage.getItem('RecebendoDados') === 'true';
+      if (iniciouRecebimento && !recebendo) {
+        localStorage.removeItem('RecebendoDadosModal');
+        window.location.reload();
+      }
+    } catch {}
   };
   const [showOperacao, setShowOperacao] = useState(false);
   const [operacaoMsg, setOperacaoMsg] = useState('');
@@ -2287,11 +2384,13 @@ export default function PedidoVendas() {
 
   //=============================================================//
   const formataData = (date: string) => {
-    const dataFormate = date.split('T', 1);
-    const newDate = dataFormate[0];
+    if (!date) return '';
+    const dataFormate = String(date).split('T', 1);
+    const newDate = dataFormate[0] || '';
+    if (!newDate) return '';
     const d = newDate.split('-');
-    const data = `${d[2]}.${d[1]}.${d[0]}`;
-    return data;
+    if (d.length < 3) return newDate;
+    return `${d[2]}.${d[1]}.${d[0]}`;
   };
   useEffect(() => {
     GetPromotor();
@@ -2689,6 +2788,7 @@ export default function PedidoVendas() {
 
   //=========função para o banco local ===========================================
   async function GetPromotor() {
+    setPromotorLoading(true);
     console.log(
       'entrou aquiiiii.....................................................................................................'
     );
@@ -2714,10 +2814,11 @@ export default function PedidoVendas() {
           }));
 
         setPromotorPesquisa(options);
-
         setLoading(false);
+        setPromotorLoading(false);
       } catch (error) {
         setLoading(false);
+        setPromotorLoading(false);
         console.log('Ocorreu um erro', error);
       }
     } else {
@@ -2760,9 +2861,11 @@ export default function PedidoVendas() {
             //   //   console.log("teste",promotorPesquisa)
             // });
           }
+          setPromotorLoading(false);
         })
         .catch((error) => {
           setLoading(false);
+          setPromotorLoading(false);
           console.log('Ocorreu um erro');
         });
     }
@@ -2770,6 +2873,7 @@ export default function PedidoVendas() {
 
   async function GetPromotorbancoNuvem() {
     setLoading(true);
+    setPromotorLoading(true);
     await api
       .get(
         `/api/Parceiro/filter/Vendedor?pagina=1&totalpagina=1000&codVendedor=${usuario.username}`
@@ -2792,9 +2896,11 @@ export default function PedidoVendas() {
               setPromotorPesquisa(options);
             });
         }
+        setPromotorLoading(false);
       })
       .catch((error) => {
         setLoading(false);
+        setPromotorLoading(false);
         console.log('Ocorreu um erro');
       });
   }
@@ -2803,6 +2909,11 @@ export default function PedidoVendas() {
   async function receberDadosSankhyaWeb() {
     console.log('recebendo dados', vendedorCod);
     localStorage.setItem('RecebendoDados', 'true');
+    try {
+      localStorage.setItem('RecebendoDadosModal', 'true');
+    } catch {}
+    setShowMensageLoading(false);
+    setShowMensageLoadingDup(false);
     setSucess(0);
     sucess = 0;
 
@@ -3407,12 +3518,16 @@ export default function PedidoVendas() {
     } finally {
       await transaction.done;
       await db.close();
-      window.location.reload();
     }
   }
   //=============RECEBER DADOS MOBILE ===================================
   async function receberDadosSankhyaMobile() {
     localStorage.setItem('RecebendoDados', 'true');
+    try {
+      localStorage.setItem('RecebendoDadosModal', 'true');
+    } catch {}
+    setShowMensageLoading(false);
+    setShowMensageLoadingDup(false);
     setSucess(0);
     sucess = 0;
     criarBancoDados();
@@ -4374,6 +4489,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     setSucess(130);
     sucess = 130;
     localStorage.removeItem('RecebendoDados');
+    setShowMensageLoading(false);
+    setShowMensageLoadingDup(false);
     setrespostaSank('Dados Recebidos!');
     respostaSank = 'Dados Recebidos!';
     const db = await openDB<PgamobileDB>('pgamobile', versao);
@@ -4404,8 +4521,15 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     } finally {
       await transaction.done;
       await db.close();
-
-      window.location.reload();
+      try {
+        const iniciouRecebimento = localStorage.getItem('RecebendoDadosModal') === 'true';
+        if (iniciouRecebimento) {
+          localStorage.removeItem('RecebendoDadosModal');
+          setTimeout(() => {
+            window.location.reload();
+          }, 800);
+        }
+      } catch {}
     }
   }
 
@@ -4444,6 +4568,13 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         );
 
         if (parteDaData1 !== parteDaData2) {
+          try {
+            localStorage.setItem('RecebendoDadosModal', 'true');
+          } catch {}
+          setShowMensageLoading(false);
+          setShowMensageLoadingDup(false);
+          setShowMensage(false);
+          setShowMensage2(false);
           setShowMensageSankhya(true);
           setrespostaSank('Seus dados podem estar desatualizados...');
           respostaSank = 'Seus dados podem estar desatualizados...';
@@ -4460,6 +4591,13 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           }
         }
       } else {
+        try {
+          localStorage.setItem('RecebendoDadosModal', 'true');
+        } catch {}
+        setShowMensageLoading(false);
+        setShowMensageLoadingDup(false);
+        setShowMensage(false);
+        setShowMensage2(false);
         setShowMensageSankhya(true);
         setrespostaSank('Seus dados podem estar desatualizados...');
         respostaSank = 'Seus dados podem estar desatualizados...';
@@ -7247,7 +7385,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   async function SalvarItensPedido() {
     await api
       .post('/api/ItemPedidoVenda', pedidosSalvar)
-      .then((response) => {
+      .then(async (response) => {
         console.log(response.data);
         if (response.data.message == 'Alguns itens não puderam ser salvos.') {
           setAlertErroMensage2(true);
@@ -7274,10 +7412,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   //==========Salvar como não enviado=========================
   async function SalvarItensPedidoPendente() {
     setShowMensageSankhya(true);
-    setrespostaSank('Enviando Pedido...');
+    setrespostaSank('Salvando Pedido...');
     await api
       .post('/api/ItemPedidoVenda', pedidosSalvar)
-      .then((response) => {
+      .then(async (response) => {
         console.log(response.data);
         if (response.data.message == 'Alguns itens não puderam ser salvos.') {
           setAlertErroMensage2(true);
@@ -7289,6 +7427,81 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             setMsgErro2(`${response.data.message}:\n${errorMsg}`);
           } else {
             setMsgErro2(response.data.message);
+          }
+          return;
+        }
+        const totalEsperado = pedidosSalvar.length;
+        const respostaVerificacao = await api.get(
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`
+        );
+        const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
+        const totalApi = itensApi.length;
+        const somaApi = itensApi.reduce(
+          (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
+          0
+        );
+        const arred = (n: number) => Math.round(n * 100) / 100;
+        const somaEsperada = arred(Number(somaTotal));
+        const somaApiArred = arred(somaApi);
+        if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+          const respostaReenvio = await api.post(
+            '/api/ItemPedidoVenda',
+            pedidosSalvar
+          );
+          if (
+            respostaReenvio?.data?.message ==
+            'Alguns itens não puderam ser salvos.'
+          ) {
+            setAlertErroMensage2(true);
+            if (
+              respostaReenvio.data.errors &&
+              respostaReenvio.data.errors.length > 0
+            ) {
+              let errorMsg = '';
+              respostaReenvio.data.errors.forEach((error: any) => {
+                errorMsg += error + '\n';
+              });
+              setMsgErro2(`${respostaReenvio.data.message}:\n${errorMsg}`);
+            } else {
+              setMsgErro2(respostaReenvio.data.message);
+            }
+            return;
+          }
+          const respostaVerificacao2 = await api.get(
+            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`
+          );
+          const itensApi2 = (respostaVerificacao2?.data?.data as any[]) || [];
+          const totalApi2 = itensApi2.length;
+          const somaApi2 = itensApi2.reduce(
+            (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
+            0
+          );
+          const somaApiArred2 = arred(somaApi2);
+          if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
+            setAlertErroMensage2(true);
+            setMsgErro2(
+              'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+            );
+            await api.post('/api/CabecalhoPedidoVenda', {
+              vendedorId: Number(usuario.username),
+              parceiroId: parceiroId,
+              filial: String(codEmpresa),
+              palMPV: numPedido,
+              status: 'Não Salvo',
+              tipPed: tipPed,
+              tipoNegociacaoId: Number(tipoNegocia),
+              data: dataPedido,
+              pedido: '',
+              valor: somaTotal,
+              dataEntrega: dataEntrega,
+              observacao: observacao,
+              ativo: 'S',
+              versao: versaoFront,
+            });
+            setrespostaSank(
+              'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+            );
+            return;
           }
         }
         setAlertErroMensage2(false);
@@ -10095,8 +10308,15 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         } as any;
         setPedidoSelecao(pedidoObj);
         setCabecalhoPedido(pedidoObj);
+        setIdPedidoSelecionado(cabecalhoData.id);
+        idPedidoSelecionado = cabecalhoData.id;
         setpalMPVEscolhido(cabecalhoData.palMPV);
         palMPVEscolhido = cabecalhoData.palMPV;
+        setShowlistaPedidosSelec(true);
+        setShowMensageLoading(false);
+        setShowMensageLoadingDup(false);
+        setPesquisaPedido(true);
+        pesquisaPedido = true;
         GetitensPedidoVendaIdLista();
         setSucess(50);
         sucess = 50;
@@ -10150,6 +10370,18 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         sucess = 50;
         setpalMPVEscolhido(response.data.palMPV);
         palMPVEscolhido = response.data.palMPV;
+        setShowlistaPedidosSelec(true);
+        setShowMensageLoading(false);
+        setShowMensageLoadingDup(false);
+        setPesquisaPedido(true);
+        pesquisaPedido = true;
+        try {
+          localStorage.setItem('PedidoSelecionadoId', String(response.data?.id || '0'));
+          localStorage.setItem('PedidoSelecionadoPALMPV', String(response.data?.palMPV || ''));
+          localStorage.setItem('PedidoInfoFilial', String(response.data?.filial || ''));
+          localStorage.setItem('PedidoInfoTipoNegociacaoId', String(response.data?.tipoNegociacao?.id || ''));
+          localStorage.setItem('PedidoInfoTipPed', String(response.data?.tipPed || ''));
+        } catch {}
         
         // Sincronizar observação com localStorage
         try {
@@ -10169,7 +10401,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       }
     };
 
-    // Fluxo principal: tentar IndexedDB primeiro, depois API como fallback
+    // Fluxo principal: decidir fonte conforme aba ativa
+    if (isMobile && mobileListaTab === 'api') {
+      await fetchFromAPI(cod);
+      return;
+    }
     if (isMobile) {
       const pedidoSelIdLS = Number(
         localStorage.getItem('PedidoSelecionadoId') || '0'
@@ -10238,37 +10474,180 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         }
       }
     } else {
-      // Non-mobile: tentar IndexedDB primeiro, depois API
+      // Non-mobile: sempre API direto
       try {
-        const db = await openDB<PgamobileDB>('pgamobile', versao);
-        const store = db.transaction('cabecalhoPedidoVenda', 'readonly').objectStore('cabecalhoPedidoVenda');
-        const cabecalho = await store.getAll();
-        
-        // Buscar pelo ID ou palMPV
-        const cabecalhoEscolhido = cabecalho.find(item => 
-          item.id === cod || item.palMPV === pedido
-        );
-        
-        if (cabecalhoEscolhido) {
-          console.log('Dados encontrados no IndexedDB (non-mobile):', cabecalhoEscolhido);
-          await populateFromIndexedDB(cabecalhoEscolhido);
-        } else {
-          // Se não encontrar no IndexedDB, buscar da API
-          console.log('Dados não encontrados no IndexedDB (non-mobile), buscando da API...');
-          await fetchFromAPI(cod);
-        }
+        await fetchFromAPI(cod);
       } catch (error) {
-        console.log('Erro ao buscar do IndexedDB (non-mobile), tentando API...', error);
-        try {
-          await fetchFromAPI(cod);
-        } catch (apiError) {
-          setLoading(false);
-          console.log('Erro também ao buscar da API (non-mobile)', apiError);
-        }
+        setLoading(false);
+        console.log('Erro ao buscar da API (non-mobile)', error);
       }
     }
   }
   //======Pedido de Venda Id ===================================//
+  async function GetPedidoVendaIdModalApi(pedido: any, cod: any) {
+    setpalMPVEscolhido('');
+    palMPVEscolhido = '';
+    setmodalList(true);
+    modalList = true;
+    setSucess(20);
+    sucess = 20;
+    setShowMensageLoading(true);
+    try {
+      const response = await api.get(`/api/CabecalhoPedidoVenda/${cod}`);
+      setPedidoSelecao(response.data);
+      setCabecalhoPedido(response.data);
+      pedidoSelecao = response.data;
+      setIdPedidoSelecionado(response.data?.id);
+      idPedidoSelecionado = response.data?.id;
+      setFilialPedidoSelecionado(response.data?.filial);
+      filialPedidoSelecionado = response.data?.filial;
+      setTipPed(response.data?.tipPed);
+      tipPed = response.data?.tipPed;
+      settipPedSelecionado(response.data?.tipPed);
+      tipPedSelecionado = response.data?.tipPed;
+      setDataEntregaPedidoSelecionado(response.data?.dataEntrega);
+      dataEntregaPedidoSelecionado = response.data?.dataEntrega;
+      setObservacaoPedidoSelecionado(response.data?.observacao);
+      observacaoPedidoSelecionado = response.data?.observacao;
+      setDataPedidoSelecionado(response.data?.data);
+      dataPedidoSelecionado = response.data?.data;
+      setNumeroPedidoSelecionado(response.data.palMPV);
+      numeroPedidoSelecionado = response.data.palMPV;
+      setNumeroPedidoSankhya(response.data.pedido);
+      numeroPedidoSankhya = response.data.pedido;
+      setStatusPedidoSelecionado(response.data.status);
+      statusPedidoSelecionado = response.data.status;
+      setParceiroPedidoSelecionadoId(response.data.parceiroId);
+      parceiroPedidoSelecionadoId = response.data.parceiroId;
+      setTipoNegociacaoPedidoSelecionadoId(response.data?.tipoNegociacao.id);
+      tipoNegociacaoPedidoSelecionadoId = response.data?.tipoNegociacao.id;
+      setTipoNegociacaoPedidoSelecionado(response.data?.tipoNegociacao.descricao);
+      tipoNegociacaoPedidoSelecionado = response.data?.tipoNegociacao.descricao;
+      setValorPedidoSelecionado(response.data.valor);
+      valorPedidoSelecionado = response.data.valor;
+      setSucess(50);
+      sucess = 50;
+      setpalMPVEscolhido(response.data.palMPV);
+      palMPVEscolhido = response.data.palMPV;
+      setShowlistaPedidosSelec(true);
+      setShowMensageLoading(false);
+      setShowMensageLoadingDup(false);
+      setPesquisaPedido(true);
+      pesquisaPedido = true;
+      try {
+        localStorage.setItem('PedidoSelecionadoId', String(response.data?.id || '0'));
+        localStorage.setItem('PedidoSelecionadoPALMPV', String(response.data?.palMPV || ''));
+        localStorage.setItem('PedidoInfoFilial', String(response.data?.filial || ''));
+        localStorage.setItem('PedidoInfoTipoNegociacaoId', String(response.data?.tipoNegociacao?.id || ''));
+        localStorage.setItem('PedidoInfoTipPed', String(response.data?.tipPed || ''));
+        localStorage.setItem('PedidoInfoObservacao', String(response.data?.observacao || ''));
+      } catch {}
+      await GetitensPedidoVendaIdListaApiPorId(pedido);
+      setLoading(false);
+      window.scrollTo(0, 0);
+    } catch (error) {
+      setLoading(false);
+      console.log('Erro ao buscar da API', error);
+    }
+  }
+  async function GetPedidoVendaIdModalLocal(pedido: any, cod: any) {
+    setpalMPVEscolhido('');
+    palMPVEscolhido = '';
+    setmodalList(true);
+    modalList = true;
+    setSucess(20);
+    sucess = 20;
+    setShowMensageLoading(true);
+    try {
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const transaction = db.transaction(
+        ['cabecalhoPedidoVenda', 'tipoNegociacao'],
+        'readonly'
+      );
+      const tipoNegStore = transaction.objectStore('tipoNegociacao');
+      const store = transaction.objectStore('cabecalhoPedidoVenda');
+      const todos = await store.getAll();
+      const escolhido =
+        todos.find((item: any) => item.id === cod) ||
+        todos.find((item: any) => item.palMPV === pedido);
+      if (!escolhido) {
+        setLoading(false);
+        setShowMensageLoading(false);
+        return;
+      }
+      setIdPedidoSelecionado(escolhido.id);
+      idPedidoSelecionado = escolhido.id;
+      setFilialPedidoSelecionado(escolhido.filial);
+      filialPedidoSelecionado = escolhido.filial;
+      setTipPed(escolhido.tipPed);
+      tipPed = escolhido.tipPed;
+      settipPedSelecionado(escolhido.tipPed);
+      tipPedSelecionado = escolhido.tipPed;
+      setDataEntregaPedidoSelecionado(escolhido.dataEntrega);
+      dataEntregaPedidoSelecionado = escolhido.dataEntrega;
+      setObservacaoPedidoSelecionado(escolhido.observacao);
+      observacaoPedidoSelecionado = escolhido.observacao;
+      setDataPedidoSelecionado(escolhido.data);
+      dataPedidoSelecionado = escolhido.data;
+      setNumeroPedidoSelecionado(escolhido.palMPV);
+      numeroPedidoSelecionado = escolhido.palMPV;
+      setNumeroPedidoSankhya(escolhido.pedido);
+      numeroPedidoSankhya = escolhido.pedido;
+      setStatusPedidoSelecionado(escolhido.status);
+      statusPedidoSelecionado = escolhido.status;
+      setParceiroPedidoSelecionadoId(escolhido.parceiroId);
+      parceiroPedidoSelecionadoId = escolhido.parceiroId;
+      setTipoNegociacaoPedidoSelecionadoId(escolhido.tipoNegociacaoId);
+      tipoNegociacaoPedidoSelecionadoId = escolhido.tipoNegociacaoId;
+      GetTipoNeg(escolhido.tipoNegociacaoId);
+      const tipoNegIdLocal = Number(escolhido.tipoNegociacaoId);
+      const tipoNegLocal =
+        tipoNegIdLocal === 1 ? { descricao: 'A VISTA' } : await tipoNegStore.get(tipoNegIdLocal);
+      const pedidoObj = {
+        id: escolhido.id,
+        filial: escolhido.filial,
+        vendedorId: escolhido.vendedorId,
+        parceiroId: escolhido.parceiroId,
+        palMPV: escolhido.palMPV,
+        tipoNegociacaoId: escolhido.tipoNegociacaoId,
+        tipoNegociacao: {
+          id: tipoNegIdLocal,
+          descricao: tipoNegLocal?.descricao || ''
+        },
+        data: escolhido.data,
+        valor: escolhido.valor,
+        dataEntrega: escolhido.dataEntrega,
+        observacao: escolhido.observacao,
+        pedido: escolhido.pedido,
+        status: escolhido.status
+      } as any;
+      setPedidoSelecao(pedidoObj);
+      setCabecalhoPedido(pedidoObj);
+      setpalMPVEscolhido(escolhido.palMPV);
+      palMPVEscolhido = escolhido.palMPV;
+      try {
+        localStorage.setItem('PedidoSelecionadoId', String(escolhido.id));
+        localStorage.setItem('PedidoSelecionadoPALMPV', String(escolhido.palMPV));
+        localStorage.setItem('PedidoInfoFilial', String(escolhido.filial));
+        localStorage.setItem('PedidoInfoTipoNegociacaoId', String(escolhido.tipoNegociacaoId));
+        localStorage.setItem('PedidoInfoTipPed', String(escolhido.tipPed));
+        localStorage.setItem('PedidoInfoObservacao', String(escolhido.observacao || ''));
+      } catch {}
+      setShowlistaPedidosSelec(true);
+      setShowMensageLoading(false);
+      setShowMensageLoadingDup(false);
+      setPesquisaPedido(true);
+      pesquisaPedido = true;
+      await GetitensPedidoVendaIdLista();
+      setSucess(50);
+      sucess = 50;
+      setLoading(false);
+      window.scrollTo(0, 0);
+    } catch (error) {
+      setLoading(false);
+      setShowMensageLoading(false);
+    }
+  }
   async function GetPedidoVendaId(pedido: any, cod: any) {
     setpalMPVEscolhido('');
     palMPVEscolhido = '';
@@ -10501,7 +10880,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     }
   }
 
-  async function GetitensPedidoVendaIdLista() {
+  async function GetitensPedidoVendaIdLista(pedidoId?: number) {
     setSucess(70);
     sucess = 70;
     window.scrollTo(0, 0);
@@ -10511,6 +10890,63 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     itensPedidoSelecionadoList = [];
 
     const vendedor = Number(usuario.username);
+    if (isMobile && mobileListaTab === 'api') {
+      await api
+        .get(
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId ?? idPedidoSelecionado}`
+        )
+        .then((resp) => {
+          const itensVindoGet: iItemPedidoVenda[] = resp?.data?.data ?? [];
+          setSucess(100);
+          sucess = 100;
+          setItensPedidoSelecionadoList(itensVindoGet);
+          itensPedidoSelecionadoList = itensVindoGet;
+          setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
+          totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+          setItensPedidoSelecionado(
+            itensVindoGet.slice(
+              (paginaItens - 1) * qtdePaginaItens,
+              paginaItens * qtdePaginaItens
+            ) || []
+          );
+          itensPedidoSelecionado =
+            itensVindoGet.slice(
+              (paginaItens - 1) * qtdePaginaItens,
+              paginaItens * qtdePaginaItens
+            ) || [];
+          let somaTotalIpiGet = 0;
+          itensVindoGet.forEach((item: any) => {
+            const valorCalculado = item?.produto?.aliIpi
+              ? item.valTotal + item.valTotal * (item.produto?.aliIpi / 100)
+              : item.valTotal;
+            somaTotalIpiGet += valorCalculado;
+          });
+          setValorPedidoSelecionado(
+            itensVindoGet.reduce(
+              (accumulator: any, item: any) => accumulator + item.valTotal,
+              0
+            )
+          );
+          valorPedidoSelecionado = itensVindoGet.reduce(
+            (accumulator: any, item: any) => accumulator + item.valTotal,
+            0
+          );
+          setIpiEscolhido(somaTotalIpiGet);
+          IpiEscolhido = somaTotalIpiGet;
+          if (modalList) {
+            setShowMensageLoading(false);
+            setPesquisaPedido(true);
+            pesquisaPedido = true;
+          } else {
+            setShowMensageLoading(false);
+          }
+        })
+        .catch(() => {
+          setLoading(false);
+          setShowMensageLoading(false);
+        });
+      return;
+    }
     if (isMobile) {
       const pedidoSelIdLS = Number(
         localStorage.getItem('PedidoSelecionadoId') || '0'
@@ -10569,8 +11005,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           );
           setIpiEscolhido(somaTotalIpiGet);
           IpiEscolhido = somaTotalIpiGet;
-          if (modalList || abrirViaListaNaoEnviado) {
-            setShowlistaPedidosSelec(true);
+          if (modalList) {
+            setShowMensageLoading(false);
           } else {
             setShowMensageLoading(false);
           }
@@ -10636,8 +11072,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         );
         setIpiEscolhido(somaTotalIpiGet);
         IpiEscolhido = somaTotalIpiGet;
-        if (modalList || abrirViaListaNaoEnviado) {
-          setShowlistaPedidosSelec(true);
+        if (modalList) {
+          setShowMensageLoading(false);
+          setPesquisaPedido(true);
+          pesquisaPedido = true;
         } else {
           setShowMensageLoading(false);
         }
@@ -10648,7 +11086,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     } else {
       await api
         .get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${palMPVEscolhido}`
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId ?? idPedidoSelecionado ?? Number(localStorage.getItem('PedidoSelecionadoId') || '0')}`
         )
         .then((response) => {
           const itensVindoGet: iItemPedidoVenda[] = response.data.data;
@@ -10693,7 +11131,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           setIpiEscolhido(somaTotalIpiGet);
           IpiEscolhido = somaTotalIpiGet;
           if (modalList) {
-            setShowlistaPedidosSelec(true);
+            setShowMensageLoading(false);
+            setPesquisaPedido(true);
+            pesquisaPedido = true;
           } else {
             setShowMensageLoading(false);
           }
@@ -10784,7 +11224,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     } else {
       await api
         .get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${palMPVEscolhido}`
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${idPedidoSelecionado || Number(localStorage.getItem('PedidoSelecionadoId') || '0') || palMPVEscolhido}`
         )
         .then((response) => {
           const itensVindoGet: iItemPedidoVenda[] = response.data.data.filter(
@@ -11527,7 +11967,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
-    setOperacaoMsg('Salvando itens...');
+    setOperacaoMsg('Enviando itens...');
     await popularItem(arrayPedido, 'N');
     try {
       const responseItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
@@ -11541,6 +11981,153 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         setOperacaoProgress(100);
         localStorage.removeItem('@Portal/PedidoEmDigitacao');
         return;
+      }
+      const totalEsperado = pedidosSalvar.length;
+      setOperacaoMsg('Verificando itens enviados...');
+      let respostaVerificacao;
+      try {
+        respostaVerificacao = await api.get(
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`,
+          { timeout: 10000 }
+        );
+      } catch (e: any) {
+        setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
+        setOperacaoProgress(100);
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: Number(usuario.username),
+          parceiroId: Number(parceiroId),
+          filial: String(codEmpresa),
+          palMPV: numPedido,
+          status: 'Não Salvo',
+          tipPed: tipPed,
+          tipoNegociacaoId: Number(tipoNegocia),
+          data: dataPedido,
+          pedido: '',
+          valor: somaTotal,
+          dataEntrega: dataEntrega,
+          observacao: observacao,
+          ativo: 'S',
+          versao: versaoFront,
+        });
+        localStorage.removeItem('@Portal/PedidoEmDigitacao');
+        return;
+      }
+      const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
+      const totalApi = itensApi.length;
+      const somaApi = itensApi.reduce(
+        (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
+        0
+      );
+      const arred = (n: number) => Math.round(n * 100) / 100;
+      const somaEsperada = arred(Number(somaTotal));
+      const somaApiArred = arred(somaApi);
+      if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+        setOperacaoMsg('Erro ao enviar itens! Reenviando...');
+        let respostaReenvio;
+        try {
+          respostaReenvio = await api.post('/api/ItemPedidoVenda', pedidosSalvar, {
+            timeout: 10000,
+          });
+        } catch (e: any) {
+          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
+          setOperacaoProgress(100);
+          await api.post('/api/CabecalhoPedidoVenda', {
+            vendedorId: Number(usuario.username),
+            parceiroId: Number(parceiroId),
+            filial: String(codEmpresa),
+            palMPV: numPedido,
+            status: 'Não Salvo',
+            tipPed: tipPed,
+            tipoNegociacaoId: Number(tipoNegocia),
+            data: dataPedido,
+            pedido: '',
+            valor: somaTotal,
+            dataEntrega: dataEntrega,
+            observacao: observacao,
+            ativo: 'S',
+            versao: versaoFront,
+          });
+          localStorage.removeItem('@Portal/PedidoEmDigitacao');
+          return;
+        }
+        if (
+          respostaReenvio?.data?.message ==
+          'Alguns itens não puderam ser salvos.'
+        ) {
+          let errorMsg = respostaReenvio.data.message;
+          if (
+            respostaReenvio.data.errors &&
+            respostaReenvio.data.errors.length > 0
+          ) {
+            errorMsg +=
+              ':\n' +
+              respostaReenvio.data.errors.map((e: any) => String(e)).join('\n');
+          }
+          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
+          setOperacaoProgress(100);
+          localStorage.removeItem('@Portal/PedidoEmDigitacao');
+          return;
+        }
+        setOperacaoMsg('Verificando itens enviados...');
+        let respostaVerificacao2;
+        try {
+          respostaVerificacao2 = await api.get(
+            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`,
+            { timeout: 10000 }
+          );
+        } catch (e: any) {
+          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
+          setOperacaoProgress(100);
+          await api.post('/api/CabecalhoPedidoVenda', {
+            vendedorId: Number(usuario.username),
+            parceiroId: Number(parceiroId),
+            filial: String(codEmpresa),
+            palMPV: numPedido,
+            status: 'Não Salvo',
+            tipPed: tipPed,
+            tipoNegociacaoId: Number(tipoNegocia),
+            data: dataPedido,
+            pedido: '',
+            valor: somaTotal,
+            dataEntrega: dataEntrega,
+            observacao: observacao,
+            ativo: 'S',
+            versao: versaoFront,
+          });
+          localStorage.removeItem('@Portal/PedidoEmDigitacao');
+          return;
+        }
+        const itensApi2 = (respostaVerificacao2?.data?.data as any[]) || [];
+        const totalApi2 = itensApi2.length;
+        const somaApi2 = itensApi2.reduce(
+          (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
+          0
+        );
+        const somaApiArred2 = arred(somaApi2);
+        if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
+          setOperacaoMsg(
+            'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+          );
+          setOperacaoProgress(100);
+          await api.post('/api/CabecalhoPedidoVenda', {
+            vendedorId: Number(usuario.username),
+            parceiroId: Number(parceiroId),
+            filial: String(codEmpresa),
+            palMPV: numPedido,
+            status: 'Não Salvo',
+            tipPed: tipPed,
+            tipoNegociacaoId: Number(tipoNegocia),
+            data: dataPedido,
+            pedido: '',
+            valor: somaTotal,
+            dataEntrega: dataEntrega,
+            observacao: observacao,
+            ativo: 'S',
+            versao: versaoFront,
+          });
+          localStorage.removeItem('@Portal/PedidoEmDigitacao');
+          return;
+        }
       }
       setOperacaoProgress(60);
       setOperacaoMsg('Salvando cabeçalho...');
@@ -11561,6 +12148,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         setnumPedido(usuario.username + dataFormarPedido);
         numPedido = usuario.username + dataFormarPedido;
       }
+      setOperacaoProgress(70);
+      setOperacaoMsg('Enviando Pedido...');
       const cabecalho: ICabecalho = {
         vendedorId: Number(usuario.username),
         parceiroId: Number(parceiroId),
@@ -11617,7 +12206,16 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         (error?.response?.data?.message as string) ||
         (error?.message as string) ||
         'Falha ao enviar pedido, tente novamente mais tarde.';
-      setOperacaoMsg(apiMsg);
+      if (
+        (error?.response?.status === 400) ||
+        String(apiMsg || '').toLowerCase().includes('status code 400')
+      ) {
+        setOperacaoMsg(
+          'Falha ao enviar pedido, tente novamente mais tarde.\nValor total dos itens não confere com o valor total do pedido.'
+        );
+      } else {
+        setOperacaoMsg(apiMsg);
+      }
       setOperacaoProgress(100);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
     }
@@ -11774,6 +12372,89 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     };
     console.log('entrou no enviar teste', cabecalho);
 
+    const itensSalvarPos: IItenPedidoSalvar[] = (itensPedidoSelecionadoList || itensPedidoSelecionado || []).map(
+      (item: any) => ({
+        vendedorId: Number(usuario.username),
+        palMPV: String(numeroPedidoSelecionado),
+        produtoId: Number(item?.produtoId),
+        quant: Number(item?.quant),
+        valUnit: Number(item?.valUnit),
+        valTotal: Number(item?.valTotal),
+      })
+    );
+    const arred = (n: number) => Math.round(n * 100) / 100;
+    const respVerif = await api.get(
+      `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
+    );
+    const itensApi = (respVerif?.data?.data as any[]) || [];
+    const totalApi = itensApi.length;
+    const somaApi = itensApi.reduce(
+      (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
+      0
+    );
+    const totalEsperado = itensSalvarPos.length;
+    const somaEsperada = arred(Number(valorPedidoSelecionado));
+    const somaApiArred = arred(somaApi);
+    if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+      const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
+      if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
+        setrespostaSank(
+          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+        );
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: usuario.username,
+          parceiroId: parceiroPedidoSelecionadoId,
+          id: idPedidoSelecionado,
+          filial: filialPedidoSelecionado,
+          palMPV: numeroPedidoSelecionado,
+          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
+          data: dataPedidoSelecionado,
+          pedido: '',
+          status: 'Não Salvo',
+          tipPed: tipPedSelecionado,
+          valor: valorPedidoSelecionado,
+          dataEntrega: dataEntregaPedidoSelecionado,
+          observacao: observacaoPedidoSelecionado,
+          ativo: 'S',
+          versao: versaoFront,
+        });
+        return;
+      }
+      const respVerif2 = await api.get(
+        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
+      );
+      const itensApi2 = (respVerif2?.data?.data as any[]) || [];
+      const totalApi2 = itensApi2.length;
+      const somaApi2 = itensApi2.reduce(
+        (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
+        0
+      );
+      const somaApiArred2 = arred(somaApi2);
+      if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
+        setrespostaSank(
+          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+        );
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: usuario.username,
+          parceiroId: parceiroPedidoSelecionadoId,
+          id: idPedidoSelecionado,
+          filial: filialPedidoSelecionado,
+          palMPV: numeroPedidoSelecionado,
+          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
+          data: dataPedidoSelecionado,
+          pedido: '',
+          status: 'Não Salvo',
+          tipPed: tipPedSelecionado,
+          valor: valorPedidoSelecionado,
+          dataEntrega: dataEntregaPedidoSelecionado,
+          observacao: observacaoPedidoSelecionado,
+          ativo: 'S',
+          versao: versaoFront,
+        });
+        return;
+      }
+    }
+
     await api
       .post('/api/CabecalhoPedidoVenda', {
         vendedorId: usuario.username,
@@ -11829,6 +12510,89 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       versao: versaoFront,
     };
     console.log('entrou no enviar teste', cabecalho);
+
+    const itensSalvarPos: IItenPedidoSalvar[] = (itensPedidoSelecionadoList || itensPedidoSelecionado || []).map(
+      (item: any) => ({
+        vendedorId: Number(usuario.username),
+        palMPV: String(numeroPedidoSelecionado),
+        produtoId: Number(item?.produtoId),
+        quant: Number(item?.quant),
+        valUnit: Number(item?.valUnit),
+        valTotal: Number(item?.valTotal),
+      })
+    );
+    const arred = (n: number) => Math.round(n * 100) / 100;
+    const respVerif = await api.get(
+      `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
+    );
+    const itensApi = (respVerif?.data?.data as any[]) || [];
+    const totalApi = itensApi.length;
+    const somaApi = itensApi.reduce(
+      (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
+      0
+    );
+    const totalEsperado = itensSalvarPos.length;
+    const somaEsperada = arred(Number(valorPedidoSelecionado));
+    const somaApiArred = arred(somaApi);
+    if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+      const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
+      if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
+        setrespostaSank(
+          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+        );
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: usuario.username,
+          parceiroId: parceiroPedidoSelecionadoId,
+          id: idPedidoSelecionado,
+          filial: filialPedidoSelecionado,
+          palMPV: numeroPedidoSelecionado,
+          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
+          data: dataPedidoSelecionado,
+          pedido: '',
+          status: 'Não Salvo',
+          tipPed: tipPedSelecionado,
+          valor: valorPedidoSelecionado,
+          dataEntrega: dataEntregaPedidoSelecionado,
+          observacao: observacaoPedidoSelecionado,
+          ativo: 'S',
+          versao: versaoFront,
+        });
+        return;
+      }
+      const respVerif2 = await api.get(
+        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
+      );
+      const itensApi2 = (respVerif2?.data?.data as any[]) || [];
+      const totalApi2 = itensApi2.length;
+      const somaApi2 = itensApi2.reduce(
+        (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
+        0
+      );
+      const somaApiArred2 = arred(somaApi2);
+      if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
+        setrespostaSank(
+          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
+        );
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: usuario.username,
+          parceiroId: parceiroPedidoSelecionadoId,
+          id: idPedidoSelecionado,
+          filial: filialPedidoSelecionado,
+          palMPV: numeroPedidoSelecionado,
+          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
+          data: dataPedidoSelecionado,
+          pedido: '',
+          status: 'Não Salvo',
+          tipPed: tipPedSelecionado,
+          valor: valorPedidoSelecionado,
+          dataEntrega: dataEntregaPedidoSelecionado,
+          observacao: observacaoPedidoSelecionado,
+          ativo: 'S',
+          versao: versaoFront,
+        });
+        return;
+      }
+    }
 
     await api
       .post('/api/CabecalhoPedidoVenda', {
@@ -12141,7 +12905,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             </div>
           ) : (
             <div className="contain-pedido d-flex conteinerped-existente">
-              {pesquisaPedido ? (
+              {pesquisaPedido && mostrarTelaPedidoPrincipal && !showlistaPedidosSelec ? (
                 <>
                   <div className="conteudo-pedido">
                     <div className="conteudo-pedido2">
@@ -12153,6 +12917,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                           modalList2 = false;
                           setPesquisaPedido(false);
                           pesquisaPedido = false;
+                          setMostrarTelaPedidoPrincipal(false);
                           setpedidosanteriores(false);
                           pedidosanteriores = false;
                           GetTresUltimos();
@@ -12637,8 +13402,16 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                         <Select
                           id="promotor"
                           className="inputparceiro"
-                          placeholder={placeHolder}
-                          noOptionsMessage={() => 'Nenhum cliente encontrado'}
+                          placeholder={
+                            promotorLoading
+                              ? 'Procurando lista de Clientes...'
+                              : placeHolder
+                          }
+                          noOptionsMessage={() =>
+                            promotorLoading
+                              ? 'Procurando lista de Clientes...'
+                              : 'Nenhum cliente encontrado! Favor receber dados Sankhya!'
+                          }
                           onMenuOpen={Verifica}
                           isDisabled={
                             itemEnviado || arrayPedido?.length > 0 || showlistaPedidosSelec
@@ -13212,7 +13985,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
                                     if (itemEnviado == false) {
                                       console.log('pesquisa', pesquisaPedido);
-                                      GetPedidoVendaId(
+                                      GetPedidoVendaIdModalApi(
                                         descPedido01,
                                         pedidoId01
                                       );
@@ -13288,7 +14061,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     pedidosanteriores = true;
                                     if (itemEnviado == false) {
                                       console.log('pesquisa', pesquisaPedido);
-                                      GetPedidoVendaId(
+                                      GetPedidoVendaIdModalApi(
                                         descPedido02,
                                         pedidoId02
                                       );
@@ -13365,7 +14138,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     pedidosanteriores = true;
                                     if (itemEnviado == false) {
                                       console.log('pesquisa', pesquisaPedido);
-                                      GetPedidoVendaId(
+                                      GetPedidoVendaIdModalApi(
                                         descPedido03,
                                         pedidoId03
                                       );
@@ -15022,9 +15795,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             <button
               style={{ width: 130, marginTop: 10 }}
               className="btn btn-primary"
-              onClick={() => {
-                window.location.reload();
-              }}
+              onClick={handleCloseMensage2}
             >
               Ok
             </button>
@@ -15068,9 +15839,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             <button
               style={{ width: 130, marginTop: 15 }}
               className="btn btn-primary"
-              onClick={() => {
-                window.location.reload();
-              }}
+              onClick={handleCloseMensage}
             >
               Ok
             </button>
@@ -15099,47 +15868,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             >
               Ok
             </button>
-          </Modal.Body>
-        </Modal>
-        {/* =====================modal sankhya========================================================== */}
-        <Modal
-          className="modal-confirm"
-          show={showMensageSankhya}
-          onHide={handleCloseMensageSankhya}
-          backdrop="static"
-        >
-          <Modal.Body>
-            <div className="div-sankhya">
-              <img id="logoSankhya" src={logoSankhya} alt="" />
-              {alertErroMensage && (
-                <h1 style={{ margin: 10 }} className="super-texto3">
-                  {msgErro}{' '}
-                </h1>
-              )}
-              {alertErroMensage2 && (
-                <h1 style={{ margin: 10 }} className="super-texto4">
-                  {msgErro2}
-                </h1>
-              )}
-              {erroPendente ? (
-                <></>
-              ) : (
-                <>
-                  <h1>{respostaSank}</h1>
-                  <ProgressBar className="progress" animated now={sucess} />
-                </>
-              )}
-            </div>
-            <div style={{ width: 200 }}></div>
-          <div className="">
-            <button
-              style={{ width: 130, marginTop: 15 }}
-              className="btn btn-primary"
-              onClick={handleCloseMensageSankhya}
-            >
-              Ok
-            </button>
-          </div>
           </Modal.Body>
         </Modal>
         <Modal
@@ -15413,7 +16141,19 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                     </tr>
                   </thead>
                   <tbody>
-                    {cabecalhoPesquisa?.length > 0 ? (
+                    {listaLoading ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', padding: 24 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                            <img id="logoSankhya" src={logoAlyne} alt="" />
+                            <h1 style={{ marginTop: 15 }}>Carregando lista...</h1>
+                            <div style={{ width: '100%', maxWidth: 420, marginTop: 12 }}>
+                              <ProgressBar className="progress" animated now={sucess} />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : cabecalhoPesquisa?.length > 0 ? (
                       <>
                         {cabecalhoPesquisa?.map((item, index) => (
                           <tr
@@ -15434,7 +16174,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                 console.log('pesquisa', pesquisaPedido);
                                 setPaginaItens(1);
                                 paginaItens = 1;
-                                GetPedidoVendaIdModal(item?.palMPV, item?.id);
+                          if (mobileListaTab === 'api') {
+                            GetPedidoVendaIdModalApi(item?.palMPV, item?.id);
+                          } else {
+                            GetPedidoVendaIdModalLocal(item?.palMPV, item?.id);
+                          }
                               }
                             }}
                           >
@@ -15490,7 +16234,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                         ))}
                       </>
                     ) : (
-                      <></>
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', padding: 12 }}>
+                          Nenhum registro encontrado
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </Table>
@@ -15623,6 +16371,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                             '@Portal/PedidoEmDigitacao',
                             'true'
                           );
+                          try {
+                            localStorage.setItem('PedidoAbrirModalSelec', 'false');
+                          } catch {}
                           setShowMensageLoadingDup(true);
                           setmodalList(false);
                           modalList = false;
@@ -16153,3 +16904,4 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     </>
   );
 }
+export default PedidoVendas;
