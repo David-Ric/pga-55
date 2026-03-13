@@ -7842,7 +7842,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           versao: versaoFront,
         });
         await popularItem(arrayPedido, 'N');
-        setOperacaoMsg('Pedido salvo com sucesso!!');
+        setOperacaoMsg('Pedido salvo com sucesso!');
         setOperacaoProgress(100);
       } catch (error) {
         setShowMensage(true);
@@ -12049,7 +12049,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       return;
     }
     
-    // 3. SE DEU TUDO CERTO, EXIBIR MENSAGEM FINAL E DISPARAR SALVAMENTO DO CABEÇALHO EM BACKGROUND
+    setOperacaoMsg('Salvando cabeçalho...');
+    setOperacaoProgress(75);
     
     var data = new Date();
     var dia = String(data.getDate()).padStart(2, '0');
@@ -12085,13 +12086,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       versao: versaoFront,
     };
     
-    setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-    setOperacaoProgress(100);
     localStorage.removeItem('@Portal/PedidoEmDigitacao');
     
     api.post('/api/CabecalhoPedidoVenda', cabecalho).then(() => {
       popularCabecalho(cabecalho, 'S');
       popularItem(arrayPedido, 'S');
+      setOperacaoMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+      setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+      setOperacaoProgress(100);
     });
   }
   //===============verificação de envio de pedido entre os 03 ultimos===========================//
