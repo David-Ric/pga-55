@@ -518,7 +518,7 @@ interface PgamobileDB extends DBSchema {
 }
 
 export const versao = 9;
-export const versaoFront = '1.1.053';
+export const versaoFront = '1.1.054';
 
 console.log('Verificando tabelas existentes...........................');
 export async function criarBancoDados() {

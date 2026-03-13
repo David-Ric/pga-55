@@ -2207,6 +2207,14 @@ function PedidoVendas() {
     setShowOperacao(false);
     window.location.reload();
   };
+  useEffect(() => {
+    if (showOperacao) {
+      const id = setInterval(() => {
+        setOperacaoProgress((p: number) => (p >= 95 ? 5 : p + 5));
+      }, 500);
+      return () => clearInterval(id);
+    }
+  }, [showOperacao]);
 
   const [pesquisaNome, setPesquisaNome] = useState(true);
   const [pesquisaCod, setPesquisaCod] = useState(false);
@@ -2244,6 +2252,14 @@ function PedidoVendas() {
   let [quantItem, setQuantItem] = useState('');
   const [quantUnid, setQuantUnid] = useState(0);
   let [sucess, setSucess] = useState(0);
+  useEffect(() => {
+    if (showMensageSankhya || showMensage || showMensage2) {
+      const id = setInterval(() => {
+        setSucess((p: number) => (p >= 95 ? 5 : p + 5));
+      }, 500);
+      return () => clearInterval(id);
+    }
+  }, [showMensageSankhya, showMensage, showMensage2]);
   let [pedidoPendente, setPedidoPendente] = useState(false);
   let [adicionandoItem, setAdicionandoItem] = useState(false);
   const [mult, setMult] = useState(true);
@@ -7398,6 +7414,18 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           } else {
             setMsgErro2(response.data.message);
           }
+          return;
+        }
+        const totalEsperado = pedidosSalvar.length;
+        const respostaVerificacao = await api.get(
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${totalEsperado}&pedidoId=${numPedido}`
+        );
+        const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
+        const totalApi = itensApi.length;
+        if (totalApi !== totalEsperado) {
+          setAlertErroMensage2(true);
+          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+          return;
         }
         popularItem(arrayPedido, 'N');
         SalvarComoEnviado();
@@ -7432,81 +7460,20 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         }
         const totalEsperado = pedidosSalvar.length;
         const respostaVerificacao = await api.get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`
+          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${totalEsperado}&pedidoId=${numPedido}`
         );
         const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
         const totalApi = itensApi.length;
-        const somaApi = itensApi.reduce(
-          (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
-          0
-        );
-        const arred = (n: number) => Math.round(n * 100) / 100;
-        const somaEsperada = arred(Number(somaTotal));
-        const somaApiArred = arred(somaApi);
-        if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
-          const respostaReenvio = await api.post(
-            '/api/ItemPedidoVenda',
-            pedidosSalvar
-          );
-          if (
-            respostaReenvio?.data?.message ==
-            'Alguns itens não puderam ser salvos.'
-          ) {
-            setAlertErroMensage2(true);
-            if (
-              respostaReenvio.data.errors &&
-              respostaReenvio.data.errors.length > 0
-            ) {
-              let errorMsg = '';
-              respostaReenvio.data.errors.forEach((error: any) => {
-                errorMsg += error + '\n';
-              });
-              setMsgErro2(`${respostaReenvio.data.message}:\n${errorMsg}`);
-            } else {
-              setMsgErro2(respostaReenvio.data.message);
-            }
-            return;
-          }
-          const respostaVerificacao2 = await api.get(
-            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`
-          );
-          const itensApi2 = (respostaVerificacao2?.data?.data as any[]) || [];
-          const totalApi2 = itensApi2.length;
-          const somaApi2 = itensApi2.reduce(
-            (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
-            0
-          );
-          const somaApiArred2 = arred(somaApi2);
-          if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
-            setAlertErroMensage2(true);
-            setMsgErro2(
-              'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-            );
-            await api.post('/api/CabecalhoPedidoVenda', {
-              vendedorId: Number(usuario.username),
-              parceiroId: parceiroId,
-              filial: String(codEmpresa),
-              palMPV: numPedido,
-              status: 'Não Salvo',
-              tipPed: tipPed,
-              tipoNegociacaoId: Number(tipoNegocia),
-              data: dataPedido,
-              pedido: '',
-              valor: somaTotal,
-              dataEntrega: dataEntrega,
-              observacao: observacao,
-              ativo: 'S',
-              versao: versaoFront,
-            });
-            setrespostaSank(
-              'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-            );
-            return;
-          }
+        if (totalApi !== totalEsperado) {
+          setAlertErroMensage2(true);
+          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+          return;
         }
         setAlertErroMensage2(false);
         setMsgErro2('');
         setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+         setOperacaoProgress(100);
+         setShowOperacao(false);
         popularItem(arrayPedido, 'S');
         SalvarComoPendente();
       })
@@ -7792,45 +7759,96 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       .filter(
         (item: IItenPedidoSalvar) => item.valUnit > 0 && item.valTotal > 0
       )
-      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => rest);
+      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => ({
+        ...rest,
+        palMPV: numPedido,
+      }));
     setPedidosSalvar(updatedItems);
     pedidosSalvar = updatedItems;
 
-
     if (isOnline) {
-      SalvarCabecalho();
-      await popularItem(arrayPedido, 'N');
-      setOperacaoMsg('Pedido salvo com sucesso!!');
-      setOperacaoProgress(100);
-      /*
-      setMsgErro('Enviando Itens para nuvens. Por favor AGUARDE!!!');
-      await api
-        .post('/api/ItemPedidoVenda', pedidosSalvar)
-        .then((response) => {
-          console.log('PEDIDO SALVO..........................', response.data);
-          if (response.data.message == 'Alguns itens não puderam ser salvos.') {
-            setAlertErroMensage2(true);
-            if (response.data.errors && response.data.errors.length > 0) {
-              let errorMsg = '';
-              response.data.errors.forEach((error: any) => {
-                errorMsg += error + '\n';
-              });
-              setMsgErro2(`${response.data.message}:\n${errorMsg}`);
-            } else {
-              setMsgErro2(response.data.message);
-            }
+      try {
+        const totalEsperado = pedidosSalvar.length;
+        setOperacaoMsg(`Enviando ${totalEsperado} itens ...`);
+        setOperacaoProgress(60);
+        const respItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
+        if (respItens?.data?.message == 'Alguns itens não puderam ser salvos.') {
+          setAlertErroMensage2(true);
+          if (respItens.data.errors && respItens.data.errors.length > 0) {
+            let errorMsg = '';
+            respItens.data.errors.forEach((error: any) => {
+              errorMsg += error + '\n';
+            });
+            setMsgErro2(`${respItens.data.message}:\n${errorMsg}`);
+          } else {
+            setMsgErro2(respItens.data.message);
           }
-          setMsgErro('Salvando Cabeçalho AGUARDE...');
-          SalvarCabecalho();
-          setMsgErro('Salvando Itens AGUARDE...');
-          popularItem(arrayPedido, 'N');
-        })
-        .catch((error) => {
-          console.log('entrou no online salvando e deu erro');
-          SalvarCabecalho();
-          popularItem(arrayPedido, 'N');
+          setOperacaoMsg('Falha ao salvar itens.');
+          setOperacaoProgress(0);
+          return;
+        }
+        
+        // Consulta única de validação após todos os lotes
+        setOperacaoMsg('Verificando itens enviados...');
+        setOperacaoProgress(50);
+        const MAX_PAGE = 999;
+        let totalApi = 0;
+        for (let tentativa = 0; tentativa < 5; tentativa++) {
+          const respostaVerificacao = await api.get(
+            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${MAX_PAGE}&pedidoId=${numPedido}`
+          );
+          const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
+          totalApi = itensApi.length;
+          if (totalApi === totalEsperado) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        if (totalApi !== totalEsperado) {
+          setAlertErroMensage2(true);
+          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+          setOperacaoMsg('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+          setOperacaoProgress(0);
+          return;
+        }
+        setOperacaoMsg('Salvando cabeçalho...');
+        setOperacaoProgress(75);
+        var data = new Date();
+        var dia = String(data.getDate()).padStart(2, '0');
+        var mes = String(data.getMonth() + 1).padStart(2, '0');
+        var ano = data.getFullYear();
+        var anoStr = String(ano);
+        var anoFinal = anoStr;
+        var hora = String(data.getHours()).padStart(2, '0');
+        var minutos = String(data.getMinutes()).padStart(2, '0');
+        var segundos = String(data.getSeconds()).padStart(2, '0');
+        `${ano}-${mes}-${dia}`;
+        var dataFilt2 = `${anoFinal}-${mes}-${dia}T${hora}:${minutos}:${segundos}Z`;
+        const dataPedidoatual = dataFilt2;
+        await api.post('/api/CabecalhoPedidoVenda', {
+          vendedorId: Number(usuario.username),
+          parceiroId: Number(parceiroId),
+          filial: String(codEmpresa),
+          palMPV: numPedido,
+          status: 'Não Enviado',
+          tipPed: tipPed,
+          tipoNegociacaoId: Number(tipoNegocia),
+          data: dataPedidoatual,
+          pedido: '',
+          valor: somaTotal,
+          dataEntrega: dataEntrega,
+          observacao: observacao,
+          ativo: 'S',
+          versao: versaoFront,
         });
-        */
+        await popularItem(arrayPedido, 'N');
+        setOperacaoMsg('Pedido salvo com sucesso!!');
+        setOperacaoProgress(100);
+      } catch (error) {
+        setShowMensage(true);
+        setAlertErroMensage(true);
+        setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
+      }
     } else {
       var data = new Date();
       var dia = String(data.getDate()).padStart(2, '0');
@@ -11949,276 +11967,132 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     setMsgErro2('');
     setOperacaoMsg('Preparando envio...');
     setOperacaoProgress(5);
+    
     if (String(dataEntrega).trim() === '') {
       setOperacaoMsg('É obrigatório informar a data de entrega.');
       setOperacaoProgress(100);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
+    
+    if (!numPedido || String(numPedido).trim() === '') {
+      setnumPedido(usuario.username + dataFormarPedido);
+      numPedido = usuario.username + dataFormarPedido;
+    }
+    
     setOperacaoProgress(10);
     const updatedItems: IItenPedidoSalvar[] = arrayPedido
       .filter((item: IItenPedidoSalvar) => item.valUnit > 0 && item.valTotal > 0)
-      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => rest);
+      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => ({
+        ...rest,
+        palMPV: numPedido,
+      }));
     setPedidosSalvar(updatedItems);
     pedidosSalvar = updatedItems;
+    
     if (!Array.isArray(pedidosSalvar) || pedidosSalvar.length === 0) {
       setOperacaoMsg('Não há itens válidos para enviar.');
       setOperacaoProgress(100);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
+    
+    // 1. ENVIAR TODOS OS ITENS EM UMA ÚNICA CHAMADA
     setOperacaoMsg('Enviando itens...');
-    await popularItem(arrayPedido, 'N');
-    try {
-      const responseItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
-      if (responseItens.data?.message == 'Alguns itens não puderam ser salvos.') {
-        let errorMsg = responseItens.data.message;
-        if (responseItens.data.errors && responseItens.data.errors.length > 0) {
-          errorMsg +=
-            ':\n' + responseItens.data.errors.map((e: any) => String(e)).join('\n');
-        }
-        setOperacaoMsg(errorMsg);
-        setOperacaoProgress(100);
-        localStorage.removeItem('@Portal/PedidoEmDigitacao');
-        return;
-      }
-      const totalEsperado = pedidosSalvar.length;
-      setOperacaoMsg('Verificando itens enviados...');
-      let respostaVerificacao;
-      try {
-        respostaVerificacao = await api.get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`,
-          { timeout: 10000 }
-        );
-      } catch (e: any) {
-        setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
-        setOperacaoProgress(100);
-        await api.post('/api/CabecalhoPedidoVenda', {
-          vendedorId: Number(usuario.username),
-          parceiroId: Number(parceiroId),
-          filial: String(codEmpresa),
-          palMPV: numPedido,
-          status: 'Não Salvo',
-          tipPed: tipPed,
-          tipoNegociacaoId: Number(tipoNegocia),
-          data: dataPedido,
-          pedido: '',
-          valor: somaTotal,
-          dataEntrega: dataEntrega,
-          observacao: observacao,
-          ativo: 'S',
-          versao: versaoFront,
+    const totalEsperado = pedidosSalvar.length;
+    setOperacaoMsg(`Enviando ${totalEsperado} itens ...`);
+    setOperacaoProgress(60);
+    
+    const respItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
+    
+    if (respItens?.data?.message == 'Alguns itens não puderam ser salvos.') {
+      setAlertErroMensage2(true);
+      if (respItens.data.errors && respItens.data.errors.length > 0) {
+        let errorMsg = '';
+        respItens.data.errors.forEach((error: any) => {
+          errorMsg += error + '\n';
         });
-        localStorage.removeItem('@Portal/PedidoEmDigitacao');
-        return;
-      }
-      const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
-      const totalApi = itensApi.length;
-      const somaApi = itensApi.reduce(
-        (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
-        0
-      );
-      const arred = (n: number) => Math.round(n * 100) / 100;
-      const somaEsperada = arred(Number(somaTotal));
-      const somaApiArred = arred(somaApi);
-      if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
-        setOperacaoMsg('Erro ao enviar itens! Reenviando...');
-        let respostaReenvio;
-        try {
-          respostaReenvio = await api.post('/api/ItemPedidoVenda', pedidosSalvar, {
-            timeout: 10000,
-          });
-        } catch (e: any) {
-          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
-          setOperacaoProgress(100);
-          await api.post('/api/CabecalhoPedidoVenda', {
-            vendedorId: Number(usuario.username),
-            parceiroId: Number(parceiroId),
-            filial: String(codEmpresa),
-            palMPV: numPedido,
-            status: 'Não Salvo',
-            tipPed: tipPed,
-            tipoNegociacaoId: Number(tipoNegocia),
-            data: dataPedido,
-            pedido: '',
-            valor: somaTotal,
-            dataEntrega: dataEntrega,
-            observacao: observacao,
-            ativo: 'S',
-            versao: versaoFront,
-          });
-          localStorage.removeItem('@Portal/PedidoEmDigitacao');
-          return;
-        }
-        if (
-          respostaReenvio?.data?.message ==
-          'Alguns itens não puderam ser salvos.'
-        ) {
-          let errorMsg = respostaReenvio.data.message;
-          if (
-            respostaReenvio.data.errors &&
-            respostaReenvio.data.errors.length > 0
-          ) {
-            errorMsg +=
-              ':\n' +
-              respostaReenvio.data.errors.map((e: any) => String(e)).join('\n');
-          }
-          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
-          setOperacaoProgress(100);
-          localStorage.removeItem('@Portal/PedidoEmDigitacao');
-          return;
-        }
-        setOperacaoMsg('Verificando itens enviados...');
-        let respostaVerificacao2;
-        try {
-          respostaVerificacao2 = await api.get(
-            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numPedido}`,
-            { timeout: 10000 }
-          );
-        } catch (e: any) {
-          setOperacaoMsg('Valor total dos itens não confere com o valor total do pedido.');
-          setOperacaoProgress(100);
-          await api.post('/api/CabecalhoPedidoVenda', {
-            vendedorId: Number(usuario.username),
-            parceiroId: Number(parceiroId),
-            filial: String(codEmpresa),
-            palMPV: numPedido,
-            status: 'Não Salvo',
-            tipPed: tipPed,
-            tipoNegociacaoId: Number(tipoNegocia),
-            data: dataPedido,
-            pedido: '',
-            valor: somaTotal,
-            dataEntrega: dataEntrega,
-            observacao: observacao,
-            ativo: 'S',
-            versao: versaoFront,
-          });
-          localStorage.removeItem('@Portal/PedidoEmDigitacao');
-          return;
-        }
-        const itensApi2 = (respostaVerificacao2?.data?.data as any[]) || [];
-        const totalApi2 = itensApi2.length;
-        const somaApi2 = itensApi2.reduce(
-          (acc: number, item: any) => acc + Number(item?.valTotal ?? 0),
-          0
-        );
-        const somaApiArred2 = arred(somaApi2);
-        if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
-          setOperacaoMsg(
-            'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-          );
-          setOperacaoProgress(100);
-          await api.post('/api/CabecalhoPedidoVenda', {
-            vendedorId: Number(usuario.username),
-            parceiroId: Number(parceiroId),
-            filial: String(codEmpresa),
-            palMPV: numPedido,
-            status: 'Não Salvo',
-            tipPed: tipPed,
-            tipoNegociacaoId: Number(tipoNegocia),
-            data: dataPedido,
-            pedido: '',
-            valor: somaTotal,
-            dataEntrega: dataEntrega,
-            observacao: observacao,
-            ativo: 'S',
-            versao: versaoFront,
-          });
-          localStorage.removeItem('@Portal/PedidoEmDigitacao');
-          return;
-        }
-      }
-      setOperacaoProgress(60);
-      setOperacaoMsg('Salvando cabeçalho...');
-      var data = new Date();
-      var dia = String(data.getDate()).padStart(2, '0');
-      var mes = String(data.getMonth() + 1).padStart(2, '0');
-      var ano = data.getFullYear();
-      var anoStr = String(ano);
-      var anoFinal = anoStr;
-      var hora = String(data.getHours()).padStart(2, '0');
-      var minutos = String(data.getMinutes()).padStart(2, '0');
-      var segundos = String(data.getSeconds()).padStart(2, '0');
-      `${ano}-${mes}-${dia}`;
-      var dataFilt2 = `${anoFinal}-${mes}-${dia}T${hora}:${minutos}:${segundos}Z`;
-      const dataPedidoatual = dataFilt2;
-      setdataPedidoNovo(String(dataPedidoatual));
-      if (!numPedido || String(numPedido).trim() === '') {
-        setnumPedido(usuario.username + dataFormarPedido);
-        numPedido = usuario.username + dataFormarPedido;
-      }
-      setOperacaoProgress(70);
-      setOperacaoMsg('Enviando Pedido...');
-      const cabecalho: ICabecalho = {
-        vendedorId: Number(usuario.username),
-        parceiroId: Number(parceiroId),
-        filial: String(codEmpresa),
-        palMPV: numPedido,
-        status: 'Processar',
-        tipPed: tipPed,
-        tipoNegociacaoId: Number(tipoNegocia),
-        data: dataPedidoatual,
-        pedido: '',
-        valor: somaTotal,
-        dataEntrega: dataEntrega,
-        observacao: observacao,
-        ativo: 'S',
-        versao: versaoFront,
-      };
-      const responseCab = await api.post('/api/CabecalhoPedidoVenda', {
-        vendedorId: Number(usuario.username),
-        parceiroId: Number(parceiroId),
-        filial: String(codEmpresa),
-        palMPV: numPedido,
-        status: 'Processar',
-        tipPed: tipPed,
-        tipoNegociacaoId: Number(tipoNegocia),
-        data: dataPedidoatual,
-        pedido: '',
-        valor: somaTotal,
-        dataEntrega: dataEntrega,
-        observacao: observacao,
-        ativo: 'S',
-        versao: versaoFront,
-      });
-      const cabId =
-        (responseCab && responseCab.data && responseCab.data.data
-          ? responseCab.data.data.id
-          : undefined) ??
-        (responseCab && responseCab.data ? responseCab.data.id : undefined) ??
-        (responseCab as any)?.id;
-      if (cabId) {
-        setPedidoVendaID(cabId);
-        pedidoVendaID = cabId;
-        setidVenda(cabId);
-        idVenda = cabId;
-      }
-      setOperacaoProgress(85);
-      setOperacaoMsg('Finalizando...');
-      await popularCabecalho(cabecalho, 'S');
-      await popularItem(arrayPedido, 'S');
-      setOperacaoMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-      setOperacaoProgress(100);
-      localStorage.removeItem('@Portal/PedidoEmDigitacao');
-    } catch (error: any) {
-      const apiMsg =
-        (error?.response?.data?.message as string) ||
-        (error?.message as string) ||
-        'Falha ao enviar pedido, tente novamente mais tarde.';
-      if (
-        (error?.response?.status === 400) ||
-        String(apiMsg || '').toLowerCase().includes('status code 400')
-      ) {
-        setOperacaoMsg(
-          'Falha ao enviar pedido, tente novamente mais tarde.\nValor total dos itens não confere com o valor total do pedido.'
-        );
+        setMsgErro2(`${respItens.data.message}:\n${errorMsg}`);
       } else {
-        setOperacaoMsg(apiMsg);
+        setMsgErro2(respItens.data.message);
       }
-      setOperacaoProgress(100);
+      setOperacaoMsg('Falha ao salvar itens.');
+      setOperacaoProgress(0);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
+      return;
     }
+    
+    // 2. VERIFICAR QUANTIDADE DE ITENS SALVOS
+    setOperacaoMsg('Verificando itens enviados...');
+    setOperacaoProgress(65);
+    
+    const MAX_PAGE = 999;
+    let totalApi = 0;
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+      const respostaVerificacao = await api.get(
+        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${MAX_PAGE}&pedidoId=${numPedido}`
+      );
+      const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
+      totalApi = itensApi.length;
+      if (totalApi === totalEsperado) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    
+    if (totalApi !== totalEsperado) {
+      setAlertErroMensage2(true);
+      setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+      setOperacaoMsg('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
+      setOperacaoProgress(0);
+      localStorage.removeItem('@Portal/PedidoEmDigitacao');
+      return;
+    }
+    
+    // 3. SE DEU TUDO CERTO, EXIBIR MENSAGEM FINAL E DISPARAR SALVAMENTO DO CABEÇALHO EM BACKGROUND
+    
+    var data = new Date();
+    var dia = String(data.getDate()).padStart(2, '0');
+    var mes = String(data.getMonth() + 1).padStart(2, '0');
+    var ano = data.getFullYear();
+    var anoStr = String(ano);
+    var anoFinal = anoStr;
+    var hora = String(data.getHours()).padStart(2, '0');
+    var minutos = String(data.getMinutes()).padStart(2, '0');
+    var segundos = String(data.getSeconds()).padStart(2, '0');
+    var dataFilt2 = `${anoFinal}-${mes}-${dia}T${hora}:${minutos}:${segundos}Z`;
+    const dataPedidoatual = dataFilt2;
+    
+    if (!numPedido || String(numPedido).trim() === '') {
+      setnumPedido(usuario.username + dataFormarPedido);
+      numPedido = usuario.username + dataFormarPedido;
+    }
+    
+    const cabecalho: ICabecalho = {
+      vendedorId: Number(usuario.username),
+      parceiroId: Number(parceiroId),
+      filial: String(codEmpresa),
+      palMPV: numPedido,
+      status: 'Processar',
+      tipPed: tipPed,
+      tipoNegociacaoId: Number(tipoNegocia),
+      data: dataPedidoatual,
+      pedido: '',
+      valor: somaTotal,
+      dataEntrega: dataEntrega,
+      observacao: observacao,
+      ativo: 'S',
+      versao: versaoFront,
+    };
+    
+    setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+    setOperacaoProgress(100);
+    localStorage.removeItem('@Portal/PedidoEmDigitacao');
+    
+    api.post('/api/CabecalhoPedidoVenda', cabecalho).then(() => {
+      popularCabecalho(cabecalho, 'S');
+      popularItem(arrayPedido, 'S');
+    });
   }
   //===============verificação de envio de pedido entre os 03 ultimos===========================//
   //===================deletar em caso de erro (NÃO MAIS UTILIZADO ERA QUANDO ERA ENVIADO DIRETAMENTE AO SANKHYA)========================//
@@ -12388,19 +12262,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     );
     const itensApi = (respVerif?.data?.data as any[]) || [];
     const totalApi = itensApi.length;
-    const somaApi = itensApi.reduce(
-      (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
-      0
-    );
     const totalEsperado = itensSalvarPos.length;
-    const somaEsperada = arred(Number(valorPedidoSelecionado));
-    const somaApiArred = arred(somaApi);
-    if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+    if (totalApi !== totalEsperado) {
       const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
       if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
-        setrespostaSank(
-          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-        );
+        setrespostaSank('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
         await api.post('/api/CabecalhoPedidoVenda', {
           vendedorId: usuario.username,
           parceiroId: parceiroPedidoSelecionadoId,
@@ -12420,39 +12286,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         });
         return;
       }
-      const respVerif2 = await api.get(
-        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
-      );
-      const itensApi2 = (respVerif2?.data?.data as any[]) || [];
-      const totalApi2 = itensApi2.length;
-      const somaApi2 = itensApi2.reduce(
-        (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
-        0
-      );
-      const somaApiArred2 = arred(somaApi2);
-      if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
-        setrespostaSank(
-          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-        );
-        await api.post('/api/CabecalhoPedidoVenda', {
-          vendedorId: usuario.username,
-          parceiroId: parceiroPedidoSelecionadoId,
-          id: idPedidoSelecionado,
-          filial: filialPedidoSelecionado,
-          palMPV: numeroPedidoSelecionado,
-          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
-          data: dataPedidoSelecionado,
-          pedido: '',
-          status: 'Não Salvo',
-          tipPed: tipPedSelecionado,
-          valor: valorPedidoSelecionado,
-          dataEntrega: dataEntregaPedidoSelecionado,
-          observacao: observacaoPedidoSelecionado,
-          ativo: 'S',
-          versao: versaoFront,
-        });
-        return;
-      }
+      
     }
 
     await api
@@ -12527,19 +12361,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     );
     const itensApi = (respVerif?.data?.data as any[]) || [];
     const totalApi = itensApi.length;
-    const somaApi = itensApi.reduce(
-      (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
-      0
-    );
     const totalEsperado = itensSalvarPos.length;
-    const somaEsperada = arred(Number(valorPedidoSelecionado));
-    const somaApiArred = arred(somaApi);
-    if (totalApi !== totalEsperado || somaApiArred !== somaEsperada) {
+    if (totalApi !== totalEsperado) {
       const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
       if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
-        setrespostaSank(
-          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-        );
+        setrespostaSank('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
         await api.post('/api/CabecalhoPedidoVenda', {
           vendedorId: usuario.username,
           parceiroId: parceiroPedidoSelecionadoId,
@@ -12559,39 +12385,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         });
         return;
       }
-      const respVerif2 = await api.get(
-        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
-      );
-      const itensApi2 = (respVerif2?.data?.data as any[]) || [];
-      const totalApi2 = itensApi2.length;
-      const somaApi2 = itensApi2.reduce(
-        (acc: number, it: any) => acc + Number(it?.valTotal ?? 0),
-        0
-      );
-      const somaApiArred2 = arred(somaApi2);
-      if (totalApi2 !== totalEsperado || somaApiArred2 !== somaEsperada) {
-        setrespostaSank(
-          'Erro ao enviar o Pedido> Valor total dos itens não confere com o valor total do pedido.'
-        );
-        await api.post('/api/CabecalhoPedidoVenda', {
-          vendedorId: usuario.username,
-          parceiroId: parceiroPedidoSelecionadoId,
-          id: idPedidoSelecionado,
-          filial: filialPedidoSelecionado,
-          palMPV: numeroPedidoSelecionado,
-          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
-          data: dataPedidoSelecionado,
-          pedido: '',
-          status: 'Não Salvo',
-          tipPed: tipPedSelecionado,
-          valor: valorPedidoSelecionado,
-          dataEntrega: dataEntregaPedidoSelecionado,
-          observacao: observacaoPedidoSelecionado,
-          ativo: 'S',
-          versao: versaoFront,
-        });
-        return;
-      }
+      
     }
 
     await api
@@ -12614,6 +12408,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       })
       .then((response) => {
         setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+        setOperacaoProgress(100);
+        setShowOperacao(false);
         popularCabecalho(cabecalho, 'S');
         console.log('entrou no enviar teste', response.data);
         setPesquisaPedido(false);
@@ -15879,8 +15675,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           <Modal.Body>
             <div className="div-sankhya">
               <img id="logoSankhya" src={logoAlyne} alt="" />
-              <h1>{operacaoMsg}</h1>
-              <ProgressBar className="progress" animated now={operacaoProgress} />
+              <h1 style={{ whiteSpace: 'pre-line', fontSize: '14px', lineHeight: '1.4' }}>{operacaoMsg}</h1>
+              {operacaoProgress < 100 && (
+                <ProgressBar className="progress" animated now={operacaoProgress} />
+              )}
             </div>
             <div className="">
               <button
@@ -16898,6 +16696,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             <ProgressBar className="progress" animated now={sucess} />
           </Modal.Body>
         </Modal>
+
       </div>
       <FooterMobile />
       <Footer />
