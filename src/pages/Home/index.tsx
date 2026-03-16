@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import './Home.scss';
 import '../../styles/global.scss';
-import Navbar from '../../components/Navbar/Navbar';
 import LogoOle from '../../assets/ole-logo.png';
 import LogoAvatar from '../../assets/avatar1.png';
 import Messeger from '../../assets/messege.png';
 import ChampGif from '../../assets/playy.gif';
-import Footer from '../../components/Footer/Footer';
 import { RedirectFunction } from 'react-router';
 import { Link, useNavigate } from 'react-router-dom';
 import Logo from '../../assets/logo-dark.png';
@@ -29,6 +27,7 @@ import {
 } from '../../provider/PortalContext';
 import { criarBancoDados, versao, versaoFront } from '../../data/indexedDB';
 import { openDB, DBSchema } from 'idb';
+
 
 interface iGrafico {
   Mes: string;
@@ -402,11 +401,22 @@ export default function Home() {
       .get(`/api/Configuracao/1`)
       .then((response) => {
         localStorage.setItem('@Portal/TempoSessao', response.data.tempoSessao);
+        try {
+          const vdb =
+            response?.data?.versao ??
+            response?.data?.Versao ??
+            response?.data?.versaoApp ??
+            '';
+          if (vdb) {
+            localStorage.setItem('@Portal/VersaoDb', String(vdb));
+          }
+        } catch {}
       })
       .catch((error) => {
         console.log('Ocorreu um erro', error);
       });
   }
+
 
   function montarMenu2() {
     setTimeout(function () {
@@ -2718,10 +2728,9 @@ ORDER BY 1,3`;
         </div>
       ) : (
         <>
-          <Navbar />
           <div className="content-home">
             <form className="content" onSubmit={Login}>
-              <div></div>
+              <div className="content-banner"></div>
               <div className="bloco-login">
                 <img
                   id="imgLoginDesk"
@@ -2816,13 +2825,18 @@ ORDER BY 1,3`;
                     Esqueci minha senha <Si1Password />{' '}
                   </Link>
                 </p>
-                {isMobile ? (
-                  <>
-                    <h1 className="versao"> Versão: {versaoFront}</h1>
-                  </>
-                ) : (
-                  <></>
-                )}
+                <div
+                  style={{
+                    marginTop: 10,
+                    color:
+                      typeof window !== 'undefined' && window.innerWidth <= 1280
+                        ? '#f0f3fb'
+                        : '#121213',
+                  }}
+                  className="versao"
+                >
+                  Versão: {localStorage.getItem('@Portal/VersaoDb') || versaoFront}
+                </div>
               </div>
             </form>
 
@@ -2861,7 +2875,7 @@ ORDER BY 1,3`;
               </Modal.Body>
             </Modal>
           </div>
-          <Footer />
+          
         </>
       )}
     </>

@@ -78,7 +78,7 @@ export interface iTipoNegociacao {
   id: number;
   descricao: string;
   atualizadoEm: string;
-  NaturezaPadrao?: string;
+  Natureza: string;
 }
 export interface iConcorrentes {
   id: number;
@@ -728,6 +728,7 @@ export interface IItenPedidoSalvar {
   quant: number;
   valUnit: number;
   valTotal: number;
+  baixado: string;
 }
 
 export interface IComunicado {

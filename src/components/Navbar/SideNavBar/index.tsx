@@ -313,6 +313,7 @@ interface PgamobileDB extends DBSchema {
       id: number;
       descricao: string;
       atualizadoEm: string;
+      Natureza: string;
     };
   };
   parceiro: {
@@ -1298,7 +1299,6 @@ export default function SideNavBar() {
         }
 
         await LoginSankhya();
-        await SalvarNaturezaPadraoTipoNegociacao(vendedorCod);
         receberDadosSankhyaParceiro();
       })
       .catch((error) => {
@@ -1344,6 +1344,7 @@ export default function SideNavBar() {
       .post(`/api/Sankhya/DadosDashSankhya?sql=${sqlEncoded}`)
       .then((response) => {
         const rows = response?.data?.responseBody?.rows || [];
+        try { console.log('TIPO DE NATUREZA', 'SANKHYA SQL rows', rows); } catch {}
         const data = Array.isArray(rows)
           ? rows.map((r: any) => ({
               id: Array.isArray(r) ? r[0] : r?.Id ?? r?.ID ?? r?.id,
@@ -1353,6 +1354,7 @@ export default function SideNavBar() {
                 Array.isArray(r) ? r[3] : r?.NaturezaPadrao ?? null,
             }))
           : [];
+        try { console.log('TIPO DE NATUREZA', 'SANKHYA mapped', data); } catch {}
         try {
           localStorage.setItem(
             '@Portal/tipoNegociacaoNaturezaPadrao',

@@ -2,13 +2,35 @@ import axios from 'axios';
 import { iDadosUsuario } from '../@types';
 
 const api = axios.create({
-  baseURL: 'https://pga.cigel.com.br:8095/',
+  //baseURL: 'https://pga.cigel.com.br:8095/',
   //baseURL: 'http://10.0.0.158:8091/',
-  //baseURL: 'https://localhost:8095/',
+  baseURL: 'https://localhost:8095/',
   headers: {
     'Content-type': 'application/json',
   },
 });
+
+let pauseDepth = 0;
+let pausedForOrder = false;
+const pendingResolvers: Array<() => void> = [];
+function isCritical(config: any): boolean {
+  const url = String(config?.url || '');
+  const method = String(config?.method || '').toLowerCase();
+  if (method !== 'post') return false;
+  return (
+    url.includes('/api/ItemPedidoVenda') ||
+    url.includes('/api/ItemPedidoVenda/item') ||
+    url.includes('/api/CabecalhoPedidoVenda')
+  );
+}
+function flushPending() {
+  const resolvers = pendingResolvers.splice(0, pendingResolvers.length);
+  resolvers.forEach((r) => {
+    try {
+      r();
+    } catch {}
+  });
+}
 
 function getToken(): string | null {
   const usuario: iDadosUsuario = JSON.parse(
@@ -30,11 +52,30 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  if (isCritical(config)) {
+    pauseDepth += 1;
+    pausedForOrder = true;
+    return config;
+  }
+  if (pausedForOrder) {
+    return new Promise((resolve) => {
+      pendingResolvers.push(() => resolve(config));
+    });
+  }
   return config;
 });
 
 api.interceptors.response.use(
   (response) => {
+    try {
+      if (isCritical(response?.config)) {
+        pauseDepth = Math.max(0, pauseDepth - 1);
+        if (pauseDepth === 0) {
+          pausedForOrder = false;
+          flushPending();
+        }
+      }
+    } catch {}
     try {
       const evt = new CustomEvent('api-status', {
         detail: { ok: true, status: response?.status || 200 },
@@ -44,6 +85,15 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    try {
+      if (isCritical(error?.config)) {
+        pauseDepth = Math.max(0, pauseDepth - 1);
+        if (pauseDepth === 0) {
+          pausedForOrder = false;
+          flushPending();
+        }
+      }
+    } catch {}
     try {
       const isTimeout =
         error?.code === 'ECONNABORTED' ||

@@ -22,6 +22,7 @@ import axios from 'axios';
 import logoSankhya from '../../assets/logo-dark.png';
 import ProgressBar from 'react-bootstrap/ProgressBar';
 import FooterMobile from '../../components/Footer/FooterMobile';
+import { versaoFront as versaoFrontConst } from '../../data/indexedDB';
 
 type Apontamento = {
   id: number;
@@ -59,6 +60,9 @@ export default function Configuracoes() {
 
   const [title, setTitle] = useState('');
   const [file, setFile] = useState<File>();
+  const [showVersaoModal, setShowVersaoModal] = useState(false);
+  const [novaVersao, setNovaVersao] = useState('');
+  const [versaoDb, setVersaoDb] = useState('');
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
@@ -155,6 +159,16 @@ export default function Configuracoes() {
         setusuarioSankhya(response.data.sankhyaUsuario);
         setsenhaSankhya(response.data.sankhyaSenha);
         setTempoSessao(response.data.tempoSessao);
+        try {
+          const vdb =
+            response?.data?.versao ??
+            response?.data?.Versao ??
+            response?.data?.versaoApp ??
+            '';
+          const v = String(vdb || '');
+          setVersaoDb(v);
+          setNovaVersao(v);
+        } catch {}
         setSucess(80);
         setLoading(false);
       })
@@ -213,16 +227,72 @@ export default function Configuracoes() {
         console.log('slq', response.data);
         setShowMensage(true);
         setAlertErroMensage(true);
-        setMsgErro(response.data);
+        const data = response?.data;
+        const msg =
+          typeof data === 'string'
+            ? data
+            : data?.title || data?.message || 'Comando executado com sucesso';
+        setMsgErro(msg);
       })
       .catch((error) => {
         console.log(error.respose);
         setShowMensage(true);
         setAlertErroMensage(true);
-        const data = error.response.data;
-        setMsgErro(data);
+        const data = error?.response?.data;
+        const msg =
+          typeof data === 'string'
+            ? data
+            : data?.title || data?.message || 'Erro ao executar SQL';
+        setMsgErro(msg);
         return;
       });
+  }
+
+  async function AtualizarVersao() {
+    try {
+      const cfgResp = await api.get(`/api/Configuracao/1`);
+      const cfgAtual = { ...(cfgResp?.data || {}) };
+      cfgAtual.Versao = novaVersao;
+      cfgAtual.versao = novaVersao;
+      cfgAtual.versaoApp = novaVersao;
+      await api.put(`/api/Configuracao/1`, cfgAtual);
+      try {
+        const tituloUpdate = 'Opa... tem nova atualização do PGA por aqui!';
+        const textoUpdate = `Olá, temos uma nova atualização do PGA pra você, entre m contato como comercial e saiba das novidades desta versão ${novaVersao}, Para atualizar clique no aceite`;
+        const dataAtual = new Date();
+        const resp = await api.get(`/api/GrupoUsuario?pagina=1&totalpagina=999`);
+        const gruposAlvo = Array.isArray(resp?.data?.data)
+          ? resp.data.data
+          : Array.isArray(resp?.data)
+          ? resp.data
+          : [];
+        if (gruposAlvo && gruposAlvo.length > 0) {
+          await Promise.all(
+            gruposAlvo.map((g: any) =>
+              api.post('/api/ComunicadoComercial', {
+                titulo: tituloUpdate,
+                texto: textoUpdate,
+                grupoId: g.id,
+                criadoEm: dataAtual,
+              })
+            )
+          );
+        }
+      } catch (e) {}
+      setShowMensage(true);
+      setAlertErroMensage(true);
+      setMsgErro('Versão atualizada com sucesso!');
+      setShowVersaoModal(false);
+    } catch (error: any) {
+      setShowMensage(true);
+      setAlertErroMensage(true);
+      const data = error?.response?.data;
+      const msg =
+        typeof data === 'string'
+          ? data
+          : data?.title || data?.message || 'Erro ao atualizar a versão';
+      setMsgErro(msg);
+    }
   }
 
   async function AtualizarDados() {
@@ -410,6 +480,28 @@ export default function Configuracoes() {
                   </div>
                   <div className="divApontamento">
                     <div className="div-controles">
+                      <h1 className="title-input">Versão do App:</h1>
+                      <div className="d-flex" style={{ alignItems: 'center' }}>
+                        <input
+                          id="versao-front"
+                          value={novaVersao}
+                          type="text"
+                          className="form-control select inputparceiro inputApont"
+                          style={{ maxWidth: 200 }}
+                          onChange={(e) => setNovaVersao(e.target.value)}
+                        />
+                        <button
+                          style={{ marginLeft: 10 }}
+                          className="btn btn-dark"
+                          onClick={AtualizarVersao}
+                        >
+                          Atualizar versão
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="divApontamento">
+                    <div className="div-controles">
                       <h1 className="title-input">Atualização do Sistema:</h1>
                       {atualizarSistem ? (
                         <>
@@ -502,6 +594,44 @@ export default function Configuracoes() {
               </Modal.Body>
             </Modal>
           </div>
+            <Modal
+              className="modal-confirm"
+              show={showVersaoModal}
+              onHide={() => setShowVersaoModal(false)}
+            >
+              <Modal.Header closeButton>
+                <h1>Atualizar Versão</h1>
+              </Modal.Header>
+              <Modal.Body>
+                <div className="form-cadastro-user">
+                  <div className="bloco-input">
+                    <div>
+                      <p className="title-input" style={{ textAlign: 'justify' }}>
+                        Nova versão:
+                      </p>
+                      <input
+                        className="form-control select inputparceiro"
+                        type="text"
+                        value={novaVersao}
+                        onChange={(e) => setNovaVersao(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="bloco-input boco-botoes-grupo" style={{ marginTop: 15 }}>
+                    <button className="btn btn-cadastrar" onClick={AtualizarVersao}>
+                      Salvar
+                    </button>
+                    <button
+                      className="btn btn-cancelar"
+                      onClick={() => setShowVersaoModal(false)}
+                      style={{ marginLeft: 10 }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </Modal.Body>
+            </Modal>
           <FooterMobile />
           <Footer />
         </>

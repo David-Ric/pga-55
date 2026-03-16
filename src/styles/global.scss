@@ -2096,8 +2096,8 @@ tr {
     position: absolute;
     right: 20px;
     font-size: 9px !important;
-    margin-bottom: 10px;
-    margin-top: 5px;
+   // margin-bottom: 10px;
+   // margin-top: 5px;
   }
 }
 .pedidotext-mobile {
@@ -2136,7 +2136,9 @@ tr {
   font-size: 10px !important;
 }
 .mensagemErropadrao {
-  font-size: 12px !important;
+  font-size: 16px !important;
+  color: #0065dd;
+  font-weight: bold;
 }
 #condpag {
   padding-right: 30px !important;
@@ -3352,7 +3354,10 @@ tr {
   min-height: 920px;
   align-items: center;
   justify-content: center;
-  padding-top: 60px;
+  padding-top: 160px;
+  @media (max-width: 1280px) {
+    padding-top: 160px !important;
+  }
 }
 .loadingModal {
   display: block;
@@ -5025,10 +5030,11 @@ div > div > div.modal-header {
 }
 #imgLoginMob {
   display: none;
-  margin: auto !important;
+  margin: 0 !important;
 
   @media (max-width: 1280px) {
     display: block;
+    margin-top: 60px !important;
   }
 }
 #logoIdHome {
@@ -5043,7 +5049,8 @@ div > div > div.modal-header {
 .userHome {
   font-size: 14px !important;
   text-align: left;
-  margin-left: 33px;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
   @media (max-width: 1280px) {
     color: #fff;
   }
@@ -5063,9 +5070,11 @@ div > div > div.modal-header {
   margin-right: 60px;
   margin-top: 5px;
   margin-bottom: 5px;
+  cursor: default;
   h1 {
     color: #fff;
     font-size: 13px !important;
+    cursor: default;
   }
   @media (max-width: 1280px) {
     margin-right: 5px;
@@ -5080,9 +5089,11 @@ div > div > div.modal-header {
   margin-right: 60px;
   margin-top: 5px;
   margin-bottom: 5px;
+  cursor: default;
   h1 {
     color: #fff;
     font-size: 13px !important;
+    cursor: default;
   }
   @media (max-width: 1280px) {
     margin-right: 5px;
@@ -6167,8 +6178,33 @@ div > div > div.modal-header {
 }
 .pedidoNumber {
   margin-bottom: 8px;
+  font-size: 24px !important;
   @media (max-width: 1280px) {
     margin-bottom: 10px !important;
+    font-size: 18px !important;
+  }
+}
+
+/* Ajustes específicos do modal Pedido Selecionado no mobile */
+@media (max-width: 768px) {
+  .pedido-actions-mobile {
+    gap: 8px;
+  }
+  .pedido-actions-mobile .btn {
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 36px;
+    padding: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .pedido-actions-mobile .btn .fa,
+  .pedido-actions-mobile .btn svg,
+  .pedido-actions-mobile .btn img {
+    font-size: 20px !important;
+    width: 20px !important;
+    height: 20px !important;
   }
 }
 .geralOffline {
@@ -6224,7 +6260,7 @@ div > div > div.modal-header {
 
 .textEnv2 {
   color: #fff;
-  margin-left: 60px;
+  //margin-left: 60px;
   padding-bottom: 5px !important;
   padding: 4px;
   width: 65px !important;
@@ -6240,9 +6276,9 @@ div > div > div.modal-header {
 .textNEnviado2 {
   color: #fff !important;
   padding: 4px;
-  margin-left: 60px;
+  //margin-left: 60px;
   padding-bottom: 5px !important;
-  width: 67px !important;
+  //width: 67px !important;
   border-radius: 10px;
   background-color: rgb(179, 24, 13);
   text-align: center;
@@ -6253,10 +6289,27 @@ div > div > div.modal-header {
     font-size: 13px !important;
   }
 }
+.textPendente2 {
+  color: #000 !important;
+  padding: 4px;
+  padding-bottom: 5px !important;
+  min-width: 73px !important;
+  border-radius: 10px;
+  background-color: #ffd54f;
+  text-align: center;
+  font-weight: 600;
+  font-size: 13px !important;
+  font-weight: bold;
+  @media (max-width: 1280px) {
+    margin-left: 0px;
+    width: 63px !important;
+    font-size: 13px !important;
+  }
+}
 .textPend3 {
   color: #fff !important;
   padding: 4px;
-  margin-left: 60px;
+  // margin-left: 60px;
   padding-bottom: 5px !important;
   width: 67px !important;
   border-radius: 10px;
@@ -6272,7 +6325,7 @@ div > div > div.modal-header {
 .textPend2 {
   color: #fff !important;
   padding: 4px;
-  margin-left: 60px;
+  // margin-left: 60px;
   padding-bottom: 5px !important;
   width: 69px !important;
   border-radius: 10px;
@@ -6340,6 +6393,34 @@ div > div > div.modal-header {
 
 .modalerroSankhya {
   z-index: 5000;
+
+
+@media (max-width: 679px) {
+  .pedido-selec {
+    position: relative;
+  }
+  .pedido-actions-mobile {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 8px;
+    z-index: 3;
+  }
+}
+@media (max-width: 1280px) {
+  .pedido-selec {
+    position: relative;
+  }
+  .pedido-actions-mobile {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 8px;
+    z-index: 3;
+  }
+}
 
   content {
     background-color: #fff;
@@ -6479,5 +6560,12 @@ div > div > div.modal-header {
   @media (max-width: 1280px) {
     margin-top: 10px;
     margin-bottom: 10px;
+  }
+}
+.btn-cancelar-pedido-modal{
+  width: 100px !important;
+  font-size: 12px;
+  @media (max-width: 1280px) {
+   width: 90px !important; 
   }
 }

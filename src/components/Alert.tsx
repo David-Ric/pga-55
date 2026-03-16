@@ -5,24 +5,22 @@ type Alert = {
 
 export default function AlertApp(props:Alert) {
   return(
-    <div 
+    <div
       className="
-        alert 
-        alert-warning 
-        alert-dismissible 
-        fade 
+        alert
+        fade
         show
       "
       role="alert"
     >
       {props.msg}
-      <button 
-        type="button" 
-        className="btn-close" 
-        aria-label="Close" 
+      {/* <button
+        type="button"
+        className="btn-close"
+        aria-label="Close"
         onClick={() => props.setAlertErro(false)}
-      />
+      /> */}
     </div>
   );
- 
+
 }

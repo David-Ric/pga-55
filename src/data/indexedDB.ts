@@ -200,6 +200,7 @@ interface PgamobileDB extends DBSchema {
       id: number;
       descricao: string;
       atualizadoEm: string;
+      Natureza: string;
     };
   };
   parceiro: {
@@ -518,7 +519,7 @@ interface PgamobileDB extends DBSchema {
 }
 
 export const versao = 9;
-export const versaoFront = '1.1.054';
+export const versaoFront = '1.1.055';
 
 console.log('Verificando tabelas existentes...........................');
 export async function criarBancoDados() {

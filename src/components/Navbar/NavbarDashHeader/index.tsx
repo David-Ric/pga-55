@@ -80,6 +80,7 @@ interface PgamobileDB extends DBSchema {
       id: number;
       descricao: string;
       atualizadoEm: string;
+      Natureza: string;
     };
   };
   parceiro: {
@@ -465,9 +466,15 @@ const NavbarDashHeader = () => {
   let [postLidos, setPostLidos] = useState<PostLido[]>([]);
   const [showDownL, setShowDownL] = useState(false);
   const handleCloseDownL = () => setShowDownL(false);
+  const [versaoDb, setVersaoDb] = useState<string>('');
 
   function handleCloseDownLUp() {
     setShowDownL(false);
+    try {
+      if (versaoDb && versaoDb.trim() !== '' && usuario?.username !== 'admin') {
+        localStorage.setItem('@Portal/updateModalLastDbVersion', versaoDb);
+      }
+    } catch {}
     const emDigitacao =
       localStorage.getItem('@Portal/PedidoEmDigitacao') === 'true';
     const onPedido =
@@ -774,6 +781,7 @@ const NavbarDashHeader = () => {
     setatualizando(false);
 
     VerificarAtualizacao();
+    CheckDbVersion();
   }, [location.pathname, isMobile]);
 
   useEffect(() => {
@@ -787,6 +795,21 @@ const NavbarDashHeader = () => {
   
 
   async function VerificarComunicadoComercial() {
+    try {
+      const vFront = String(versaoFront || '').trim();
+      let vDbLocal = String(versaoDb || '').trim();
+      if (!vDbLocal) {
+        const vdLocal =
+          (localStorage.getItem('@Portal/VersaoDb') || '').trim();
+        vDbLocal = vdLocal;
+      }
+      if (vFront && vDbLocal && vFront === vDbLocal) {
+        setComunicadoAtualizacao(null);
+        setComunicadosComerciais([]);
+        setShowComunicadoComercial(false);
+        return;
+      }
+    } catch {}
     await api
       .get(`/api/ComunicadoComercial?pagina=1&totalpagina=999`)
       .then((response) => {
@@ -869,6 +892,34 @@ const NavbarDashHeader = () => {
       });
   }
 
+  async function CheckDbVersion() {
+    try {
+      const resp = await api.get(`/api/Configuracao/1`);
+      const vdb =
+        resp?.data?.versao ??
+        resp?.data?.Versao ??
+        resp?.data?.versaoApp ??
+        '';
+      const vd = String(vdb || '').trim();
+      setVersaoDb(vd);
+      if (!vd) return;
+      const vFront = String(versaoFront || '').trim();
+      const lastShown = localStorage.getItem('@Portal/updateModalLastDbVersion') || '';
+      const isAdmin = usuario?.username === 'admin';
+      const shouldShow = isAdmin ? vd !== vFront : vd !== vFront && vd !== lastShown;
+      if (shouldShow) {
+        setShowDownL(true);
+        if (!isAdmin) {
+          try {
+            localStorage.setItem('@Portal/updateModalLastDbVersion', vd);
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.log('erro ao obter versão de configuração', e);
+    }
+  }
+
   const handleConfirmarComunicadoComercial = async (
     selecionados?: ComunicadoComercial[]
   ) => {
@@ -910,14 +961,13 @@ const NavbarDashHeader = () => {
       if (isOnline) {
         console.log('entrou no sincronizar....');
         criarBancoDados();
-        GetDeleteCabecalhos();
         const emDigitacao =
           localStorage.getItem('@Portal/PedidoEmDigitacao') === 'true';
         const envioEmProgresso =
           localStorage.getItem('@Portal/EnvioEmProgresso') === 'true';
-        if (!emDigitacao && !envioEmProgresso) {
-          console.log('Entrou no sincronizar pedidos useEffect');
-          GetCabecalhoNaoSincronizados();
+        if (!emDigitacao && !envioEmProgresso && false) {
+          // METODO DESATIVADO POR ERROS
+          //GetCabecalhoNaoSincronizados();
         }
 
         localStorage.setItem('@Portal/Status', 'true');
@@ -985,6 +1035,7 @@ const NavbarDashHeader = () => {
   }
   //===================================================================//
 
+  // METODO DESATIVADO POR ERROS
   async function GetCabecalhoNaoSincronizados() {
     try {
       const db = await openDB<PgamobileDB>('pgamobile', versao);
@@ -1047,14 +1098,14 @@ const NavbarDashHeader = () => {
   */
   async function AddItens(itens: any, PalMPV: string, total: number) {
     await api
-      .post('/api/ItemPedidoVenda', itens)
+      .post('/api/ItemPedidoVenda/Lista', itens)
       .then((response) => {
         console.log('Salvou os itens', response.data);
         // chama a verificação dos itens
         VerificaItens(PalMPV, total);
       })
       .catch((error) => {
-        console.log('Erro do post /api/ItemPedidoVenda ', error.response.data);
+        console.log('Erro do post /api/ItemPedidoVenda/Lista ', error.response.data);
       });
   }
 
@@ -1464,10 +1515,12 @@ const NavbarDashHeader = () => {
               <></>
             )}
             {(() => {
-              const text =
-                isApiDown && isMobile ? 'api offiline' : isOnline ? 'Online' : 'Offline';
-              const cls =
-                isOnline && !(isApiDown && isMobile) ? 'divOline' : 'divOffline';
+              const text = !isOnline
+                ? 'Offline'
+                : isApiDown
+                ? 'API Offline'
+                : 'Online';
+              const cls = isOnline && !isApiDown ? 'divOline' : 'divOffline';
               return (
                 <div
                   className={cls}
@@ -1605,14 +1658,22 @@ const NavbarDashHeader = () => {
       {/* //===================================modal update ============================================ */}
       <Modal
         className="modalUpd"
-        show={showDownL}
+        show={
+          showDownL &&
+          (activeRoute === '/' ||
+            String(activeRoute || '').toLowerCase().includes('home'))
+        }
         onHide={handleCloseDownL}
         backdrop="static"
       >
         <Modal.Body>
           <div className="modalUpdt">
             <h1 style={{ marginTop: 5, fontWeight: 'bold' }}>Nova Versão</h1>
-            <h1 style={{ marginTop: 5 }}>Está disponível uma nova versão do</h1>
+            <h1 style={{ marginTop: 5 }}>
+              {versaoDb && versaoDb.trim() !== ''
+                ? `Versão disponível: ${versaoDb}`
+                : 'Está disponível uma nova versão do'}
+            </h1>
             <h1>aplicativo. Deseja atualizar agora?</h1>
             <div style={{ marginTop: 15 }} className="d-flex">
               <button
@@ -1665,11 +1726,20 @@ const NavbarDashHeader = () => {
                     >
                       {comunicadoAtualizacao.titulo}
                     </h1>
-                    <h1 style={{ marginTop: 5 }}>
-                      {comunicadoAtualizacao.texto.split(versaoFront)[0]}
-                      <span style={{ fontWeight: 'bold' }}>{versaoFront}</span>
-                      {comunicadoAtualizacao.texto.split(versaoFront)[1]}
-                    </h1>
+                    {comunicadoAtualizacao.texto.includes(versaoFront) ? (
+                      <h1 style={{ marginTop: 5 }}>
+                        {comunicadoAtualizacao.texto.split(versaoFront)[0]}
+                        <span style={{ fontWeight: 'bold' }}>{versaoFront}</span>
+                        {comunicadoAtualizacao.texto
+                          .split(versaoFront)
+                          .slice(1)
+                          .join(versaoFront)}
+                      </h1>
+                    ) : (
+                      <h1 style={{ marginTop: 5 }}>
+                        {comunicadoAtualizacao.texto}
+                      </h1>
+                    )}
                   </div>
                   <img
                     src={atualizacaoImgUrl}

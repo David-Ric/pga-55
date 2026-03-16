@@ -193,6 +193,8 @@ export default function AreaColaborador() {
   const [showPendEnvio, setShowPendEnvio] = useState(false);
   const [showListaPendEnvio, setShowListaPendEnvio] = useState(false);
   const [listaPendEnvio, setListaPendEnvio] = useState<any[]>([]);
+  const [pendentesCount, setPendentesCount] = useState(0);
+  const [naoEnviadosCount, setNaoEnviadosCount] = useState(0);
   let [paginaPendEnvio, setPaginaPendEnvio] = useState(1);
   const [loadingListaPendEnvio, setLoadingListaPendEnvio] = useState(false);
   let [totalPaginasPendEnvio, setTotalPaginasPendEnvio] = useState(0);
@@ -200,6 +202,7 @@ export default function AreaColaborador() {
     [key: string]: { nome: string; cnpj: string }
   }>({});
   const [qtdePaginaPendEnvio, setQtdePaginaPendEnvio] = useState(9999);
+  const pageSizeFrontPendEnvio = 10;
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [palmpvToCancel, setPalmpvToCancel] = useState<string>('');
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -225,13 +228,33 @@ export default function AreaColaborador() {
       try {
         if (showVisualizarPend && pedidoVisualizar?.palMPV) {
           const db = await (await import('idb')).openDB('pgamobile', (await import('../../data/indexedDB')).versao);
-          const tx = db.transaction('itemPedidoVenda', 'readonly');
-          const store = tx.objectStore('itemPedidoVenda');
-          const allItens = await store.getAll();
-          const itens = allItens.filter((i: any) => String(i?.palMPV) === String(pedidoVisualizar?.palMPV));
-          setItensVisualizar(itens);
-          setQtdItens(Array.isArray(itens) ? itens.length : 0);
-          await tx.done;
+          let carregouViaApi = false;
+          try {
+            const resp = await api.get(`/api/CabecalhoPedidoVenda/palmpv/${pedidoVisualizar?.palMPV}`);
+            const cab = (resp as any)?.data || {};
+            const itensEmb = Array.isArray(cab?.itens) ? cab.itens : [];
+            if (itensEmb.length > 0) {
+              setItensVisualizar(itensEmb);
+              setQtdItens(itensEmb.length);
+              try {
+                setEmpresaDesc(String(cab?.empresa?.descricao || cab?.empresaDescricao || ''));
+              } catch {}
+              try {
+                const tnDesc = cab?.tipoNegociacao?.descricao || cab?.tipoNegociacaoDescricao || '';
+                setTipoNegDesc(String(tnDesc || ''));
+              } catch {}
+              carregouViaApi = true;
+            }
+          } catch {}
+          if (!carregouViaApi) {
+            const tx = db.transaction('itemPedidoVenda', 'readonly');
+            const store = tx.objectStore('itemPedidoVenda');
+            const allItens = await store.getAll();
+            const itens = allItens.filter((i: any) => String(i?.palMPV) === String(pedidoVisualizar?.palMPV));
+            setItensVisualizar(itens);
+            setQtdItens(Array.isArray(itens) ? itens.length : 0);
+            await tx.done;
+          }
           try {
             const tx2 = db.transaction('tabelaPrecoParceiro', 'readonly');
             const store2 = tx2.objectStore('tabelaPrecoParceiro');
@@ -252,14 +275,26 @@ export default function AreaColaborador() {
             await tx3.done;
           } catch {}
           try {
-            const raw = localStorage.getItem('@Portal/tipoNegociacaoNaturezaPadrao') || '[]';
-            const lista = JSON.parse(raw);
-            const ach = Array.isArray(lista)
-              ? lista.find((x: any) => Number(x?.id) === Number(pedidoVisualizar?.tipoNegociacaoId))
-              : null;
-            setTipoNegDesc(String(ach?.descricao || ''));
+            const tx4 = db.transaction('tipoNegociacao', 'readonly');
+            const store4 = tx4.objectStore('tipoNegociacao');
+            const tipo = await store4.get(Number(pedidoVisualizar?.tipoNegociacaoId));
+            setTipoNegDesc(String(tipo?.descricao || ''));
+            await tx4.done;
+            if (!tipo) {
+              try {
+                const resp = await api.get(`/api/TipoNegociacao/${pedidoVisualizar?.tipoNegociacaoId}`);
+                setTipoNegDesc(String(resp?.data?.descricao || ''));
+              } catch {
+                setTipoNegDesc('');
+              }
+            }
           } catch {
-            setTipoNegDesc('');
+            try {
+              const resp = await api.get(`/api/TipoNegociacao/${pedidoVisualizar?.tipoNegociacaoId}`);
+              setTipoNegDesc(String(resp?.data?.descricao || ''));
+            } catch {
+              setTipoNegDesc('');
+            }
           }
         } else {
           setItensVisualizar([]);
@@ -400,6 +435,14 @@ export default function AreaColaborador() {
     VerificarPedidosPendentes();
   }, []);
 
+  function normalizarStatusPedido(status: any) {
+    const s = String(status || '').trim().toLowerCase();
+    const sNorm = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (sNorm === 'nao enviado') return 'nao_enviado';
+    if (sNorm === 'pendente') return 'pendente';
+    return '';
+  }
+
   async function VerificarPedidosPendentes() {
     try {
       const usuarioLocal: iDadosUsuario = JSON.parse(
@@ -412,15 +455,23 @@ export default function AreaColaborador() {
         )
         .then((response) => {
           const itensTodos = response.data.data || [];
-          const itens =
-            itensTodos.filter(
-              (x: any) => String(x?.status || '').trim() === 'Não Enviado'
-            ) || [];
-          const total = response.data.total || 0;
-          setListaPendEnvio(itens);
-          setTotalPaginasPendEnvio(
-            Math.max(1, Math.ceil(total / qtdePaginaPendEnvio))
+          const itensFiltrados =
+            itensTodos.filter((x: any) => {
+              const st = normalizarStatusPedido(x?.status);
+              return st === 'pendente' || st === 'nao_enviado';
+            }) || [];
+          const pendentes = itensFiltrados.filter(
+            (x: any) => normalizarStatusPedido(x?.status) === 'pendente'
           );
+          const naoEnviados = itensFiltrados.filter(
+            (x: any) => normalizarStatusPedido(x?.status) === 'nao_enviado'
+          );
+          console.log('TODO OS ITENS PEDEMTES',pendentes,'NAO ENVIADOS',naoEnviados)
+          setPendentesCount(pendentes.length);
+          setNaoEnviadosCount(naoEnviados.length);
+          const itens = itensFiltrados;
+          setListaPendEnvio(itens);
+          setTotalPaginasPendEnvio(itens.length);
           if (Array.isArray(itens) && itens.length > 0) {
             setShowPendEnvio(true);
           }
@@ -432,12 +483,13 @@ export default function AreaColaborador() {
   async function AbrirListaPendentes() {
     try {
       setShowListaPendEnvio(true);
+      console.log('setShowListaPendEnvio')
       setLoadingListaPendEnvio(true);
       const usuarioLocal: iDadosUsuario = JSON.parse(
         localStorage.getItem('@Portal/usuario') || '{}'
       );
+      console.log('TESTE VERIFICAR DADOS');
       const codVendedor = usuarioLocal.username;
-      const pageSizeFront = 10;
       const pageSizeApi = 1000;
       let pagina = 1;
       let acumulados: any[] = [];
@@ -445,6 +497,7 @@ export default function AreaColaborador() {
         const resp = await api.get(
           `/api/CabecalhoPedidoVenda/filter/vendedor?pagina=${pagina}&totalpagina=${pageSizeApi}&codVendedor=${codVendedor}`
         );
+        console.log('TESTE VERIFICAR DADOS', resp);
         const dados = resp?.data?.data ?? [];
         acumulados = acumulados.concat(dados);
         if (dados.length < pageSizeApi) {
@@ -452,20 +505,35 @@ export default function AreaColaborador() {
         }
         pagina += 1;
       }
-      const itensNaoEnviados =
-        acumulados.filter(
-          (x: any) => String(x?.status || '').trim() === 'Não Enviado'
-        ) || [];
-      itensNaoEnviados.sort((a: any, b: any) => {
+      const itensPendentesOuNaoEnviados =
+        acumulados.filter((x: any) => {
+          const st = normalizarStatusPedido(x?.status);
+          return st === 'pendente' || st === 'nao_enviado';
+        }) || [];
+      itensPendentesOuNaoEnviados.sort((a: any, b: any) => {
+        const sa = normalizarStatusPedido(a?.status);
+        const sb = normalizarStatusPedido(b?.status);
+        const wa = sa === 'pendente' ? 0 : 1;
+        const wb = sb === 'pendente' ? 0 : 1;
+        if (wa !== wb) return wa - wb;
         const da = new Date(String(a?.data || ''));
         const db = new Date(String(b?.data || ''));
         return db.getTime() - da.getTime();
       });
-      const startIndex = (paginaPendEnvio - 1) * pageSizeFront;
-      const endIndex = startIndex + pageSizeFront;
-      const paginated = itensNaoEnviados.slice(startIndex, endIndex);
+      const totalPagesFront = Math.max(
+        1,
+        Math.ceil(itensPendentesOuNaoEnviados.length / pageSizeFrontPendEnvio)
+      );
+      if (paginaPendEnvio > totalPagesFront) {
+        setPaginaPendEnvio(totalPagesFront);
+        setLoadingListaPendEnvio(false);
+        return;
+      }
+      const startIndex = (paginaPendEnvio - 1) * pageSizeFrontPendEnvio;
+      const endIndex = startIndex + pageSizeFrontPendEnvio;
+      const paginated = itensPendentesOuNaoEnviados.slice(startIndex, endIndex);
       setListaPendEnvio(paginated);
-      setTotalPaginasPendEnvio(Math.max(1, Math.ceil(itensNaoEnviados.length / pageSizeFront)));
+      setTotalPaginasPendEnvio(itensPendentesOuNaoEnviados.length);
       try {
         const ids = Array.from(
           new Set(
@@ -2076,7 +2144,6 @@ ORDER BY 1,3`;
         }
 
         await LoginSankhya();
-        await SalvarNaturezaPadraoTipoNegociacao(usuario.username);
         receberDadosSankhyaParceiro();
       })
       .catch((error) => {});
@@ -3535,8 +3602,12 @@ ORDER BY 1,3`;
               </Modal.Header>
               <Modal.Body>
                 <div className="pedido-selec">
-                  <h1 style={{ marginTop: 5 }} className="pedidoNumber">
-                    Existem pedidos pendentes de envio, deseja verificar?
+                  <h1 style={{ marginTop: 5 }} className="pedidoNumber2">
+                    {pendentesCount > 0 && naoEnviadosCount > 0
+                      ? `Existem ${pendentesCount} pedidos com erro de processamento (Status: Pendente) e ${naoEnviadosCount} pedidos não enviados, deseja verificar?`
+                      : pendentesCount > 0
+                      ? `Existem ${pendentesCount} pedidos com erro de processamento (Status: Pendente), deseja verificar?`
+                      : `Existem ${naoEnviadosCount} pedidos não enviados, deseja verificar?`}
                   </h1>
                   <div style={{ marginTop: 15 }}>
                     <button
@@ -3569,7 +3640,7 @@ ORDER BY 1,3`;
               backdrop="static"
             >
               <Modal.Header closeButton>
-                <h1>LISTA DE PEDIDOS À ENVIAR</h1>
+                <h1>LISTA DE PEDIDOS PENDENTES / NÃO ENVIADOS</h1>
               </Modal.Header>
               <Modal.Body>
                 <div className="table-responsive  tabela-responsiva-pedido-realizado">
@@ -3640,7 +3711,12 @@ ORDER BY 1,3`;
                                   R$: {moeda(item?.valor)}
                                 </td>
                                 <td className="th1">
-                                  <h2 className="textNEnviado2">A Enviar</h2>
+                                  {normalizarStatusPedido(item?.status) ===
+                                  'pendente' ? (
+                                    <h2 className="textPendente2">Pendente</h2>
+                                  ) : (
+                                    <h2 className="textNEnviado2">Não Enviado</h2>
+                                  )}
                                 </td>
                               </tr>
                               <tr key={`actions-${index}`}>
@@ -3680,7 +3756,7 @@ ORDER BY 1,3`;
                     </Table>
                     <Paginacao
                       total={totalPaginasPendEnvio}
-                      limit={1}
+                      limit={pageSizeFrontPendEnvio}
                       paginaAtual={paginaPendEnvio}
                       setPagina={setPaginaPendEnvio}
                     />
@@ -3786,116 +3862,112 @@ ORDER BY 1,3`;
                         >
                           Cancelar Pedido
                         </button>
-                        <button
-                          className="btn btn-dark"
-                          onClick={async () => {
-                            try {
-                              setEnviarLoading(true);
-                              setEnviarStatusErro(false);
-                              setEnviarStatusMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-                              setEnviarStatusIsDelete(false);
-                              setShowEnviarStatus(true);
-                              try {
-                                await api.post('/api/CabecalhoPedidoVenda', {
-                                  vendedorId: usuario.username,
-                                  parceiroId: pedidoVisualizar?.parceiroId,
-                                  id: pedidoVisualizar?.id,
-                                  filial: pedidoVisualizar?.filial,
-                                  palMPV: pedidoVisualizar?.palMPV,
-                                  tipoNegociacaoId: pedidoVisualizar?.tipoNegociacaoId,
-                                  data: pedidoVisualizar?.data,
-                                  pedido: '',
-                                  status: 'Processar',
-                                  tipPed: pedidoVisualizar?.tipPed,
-                                  valor: pedidoVisualizar?.valor,
-                                  dataEntrega: pedidoVisualizar?.dataEntrega,
-                                  observacao: pedidoVisualizar?.observacao,
-                                  ativo: 'S',
-                                });
-                              } catch (error: any) {
-                                const msg =
-                                  String(
-                                    error?.response?.data?.message ??
-                                      error?.message ??
-                                      'Erro ao comunicar com servidor Sankhya!'
+                          {normalizarStatusPedido(pedidoVisualizar?.status) !==
+                            'pendente' && (
+                            <button
+                              className="btn btn-dark"
+                              onClick={async () => {
+                                try {
+                                  setEnviarLoading(true);
+                                  setEnviarStatusErro(false);
+                                  setEnviarStatusMsg(
+                                    'Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!'
                                   );
-                                setEnviarStatusErro(true);
-                                setEnviarStatusMsg(msg);
-                                throw error;
-                              }
-                              try {
-                                const db = await (await import('idb')).openDB('pgamobile', (await import('../../data/indexedDB')).versao);
-                                const tx = db.transaction('cabecalhoPedidoVenda', 'readwrite');
-                                const store = tx.objectStore('cabecalhoPedidoVenda');
-                                const all = await store.getAll();
-                                for (const cab of all) {
-                                  if (String(cab?.palMPV) === String(pedidoVisualizar?.palMPV)) {
-                                    cab.sincronizado = 'S';
-                                    cab.status = 'Processar';
-                                    await store.put(cab);
+                                  setEnviarStatusIsDelete(false);
+                                  setShowEnviarStatus(true);
+                                  try {
+                                    await api.post('/api/CabecalhoPedidoVenda', {
+                                      vendedorId: usuario.username,
+                                      parceiroId: pedidoVisualizar?.parceiroId,
+                                      id: pedidoVisualizar?.id,
+                                      filial: pedidoVisualizar?.filial,
+                                      palMPV: pedidoVisualizar?.palMPV,
+                                      tipoNegociacaoId: pedidoVisualizar?.tipoNegociacaoId,
+                                      data: pedidoVisualizar?.data,
+                                      pedido: '',
+                                      status: 'Processar',
+                                      tipPed: pedidoVisualizar?.tipPed,
+                                      valor: pedidoVisualizar?.valor,
+                                      dataEntrega: pedidoVisualizar?.dataEntrega,
+                                      observacao: pedidoVisualizar?.observacao,
+                                      ativo: 'S',
+                                    });
+                                  } catch (error: any) {
+                                    const msg = String(
+                                      error?.response?.data?.message ??
+                                        error?.message ??
+                                        'Erro ao comunicar com servidor Sankhya!'
+                                    );
+                                    setEnviarStatusErro(true);
+                                    setEnviarStatusMsg(msg);
+                                    throw error;
                                   }
+                                  try {
+                                    const db = await (await import('idb')).openDB(
+                                      'pgamobile',
+                                      (await import('../../data/indexedDB')).versao
+                                    );
+                                    const tx = db.transaction(
+                                      'cabecalhoPedidoVenda',
+                                      'readwrite'
+                                    );
+                                    const store = tx.objectStore('cabecalhoPedidoVenda');
+                                    const all = await store.getAll();
+                                    for (const cab of all) {
+                                      if (
+                                        String(cab?.palMPV) ===
+                                        String(pedidoVisualizar?.palMPV)
+                                      ) {
+                                        cab.sincronizado = 'S';
+                                        cab.status = 'Processar';
+                                        await store.put(cab);
+                                      }
+                                    }
+                                    await tx.done;
+                                  } catch {}
+                                  setListaPendEnvio((prev) =>
+                                    prev.filter(
+                                      (x: any) =>
+                                        String(x?.palMPV) !==
+                                        String(pedidoVisualizar?.palMPV)
+                                    )
+                                  );
+                                  setShowVisualizarPend(false);
+                                } finally {
+                                  setEnviarLoading(false);
                                 }
-                                await tx.done;
-                              } catch {}
-                              setListaPendEnvio((prev) => prev.filter((x: any) => String(x?.palMPV) !== String(pedidoVisualizar?.palMPV)));
-                              setShowVisualizarPend(false);
-                            } finally {
-                              setEnviarLoading(false);
-                            }
-                          }}
-                          disabled={enviarLoading}
-                        >
-                          Enviar Sankhya
-                        </button>
+                              }}
+                              disabled={enviarLoading}
+                            >
+                              Enviar Sankhya
+                            </button>
+                          )}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 6 }}>
                         <h1 style={{ marginTop: 5, marginBottom: 8 }}>Status: </h1>
-                        <h1
-                          style={
-                            String(pedidoVisualizar?.status).trim() === 'Enviado'
-                              ? {
-                                  backgroundColor: '#008000',
-                                  color: '#fff',
-                                  marginTop: 3,
-                                  width: 80,
-                                  padding: 3,
-                                  borderRadius: 10,
-                                  textAlign: 'center',
-                                }
-                              : String(pedidoVisualizar?.status).trim() === 'Processar'
-                              ? {
-                                  backgroundColor: '#FFA500',
-                                  color: '#fff',
-                                  marginTop: 3,
-                                  width: 90,
-                                  padding: 3,
-                                  borderRadius: 10,
-                                  textAlign: 'center',
-                                }
-                              : {
-                                  backgroundColor: '#b3180d',
-                                  color: '#fff',
-                                  marginTop: 3,
-                                  width: 80,
-                                  padding: 3,
-                                  borderRadius: 10,
-                                  textAlign: 'center',
-                                }
-                          }
-                        >
-                          {String(pedidoVisualizar?.status).trim() === 'Não Enviado'
-                            ? 'A Enviar'
-                            : String(pedidoVisualizar?.status).trim() === 'Processar'
-                            ? 'À Processar'
-                            : String(pedidoVisualizar?.status || '')}
-                        </h1>
+                        {String(pedidoVisualizar?.status).trim() === 'Enviado' ? (
+                          <h2 className="textEnv2">Enviado</h2>
+                        ) : String(pedidoVisualizar?.status).trim() ===
+                          'Processar' ? (
+                          <h2 className="textPend2">À Processar</h2>
+                        ) : normalizarStatusPedido(pedidoVisualizar?.status) ===
+                          'pendente' ? (
+                          <h2 className="textPendente2">Pendente</h2>
+                        ) : normalizarStatusPedido(pedidoVisualizar?.status) ===
+                          'nao_enviado' ? (
+                          <h2 className="textNEnviado2">A Enviar</h2>
+                        ) : (
+                          <h2 className="textNEnviado2">
+                            {String(pedidoVisualizar?.status || '')}
+                          </h2>
+                        )}
                       </div>
                       <h1
                         style={{
                           marginTop: 12,
                           fontWeight: 'bold',
                           color: '#000',
-                          fontSize: isMobile ? 28 : 40,
+                          fontSize: '30px !important',
                         }}
                         className="pedidoNumber"
                       >

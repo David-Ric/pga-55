@@ -39,6 +39,7 @@ export default function CadastroTipoNegociacao() {
   const [usuario, setUsuario] = useState('');
   const [id, setId] = useState(0);
   const [descricao, setDescricao] = useState('');
+  const [natureza, setNatureza] = useState('');
   const [error, setError] = useState('');
   const [msgErro, setMsgErro] = useState('');
   const [alertErro, setAlertErro] = useState(false);
@@ -171,6 +172,7 @@ export default function CadastroTipoNegociacao() {
       .then((response) => {
         setId(response.data.id);
         setDescricao(response.data.descricao);
+        setNatureza(response.data.Natureza || '');
       })
       .catch((error) => {
         console.log('Ocorreu um erro');
@@ -183,6 +185,7 @@ export default function CadastroTipoNegociacao() {
       .put(`/api/TipoNegociacao/${id}`, {
         id: id,
         descricao: descricao,
+        Natureza: natureza,
       })
       .then((response) => {
         handleCloseEdit();
@@ -632,7 +635,27 @@ export default function CadastroTipoNegociacao() {
                       </div>
                     </div>
                   </div>
-                  <div className="coluna-dupla"></div>
+                  <div className="coluna-dupla">
+                    <div className="bloco-input">
+                      <div>
+                        <p
+                          className="title-input"
+                          style={{ textAlign: 'justify' }}
+                        >
+                          Natureza:{' '}
+                        </p>
+                        <input
+                          className="form-control select inputparceiro "
+                          id=""
+                          type="text"
+                          value={natureza}
+                          onChange={(e) => {
+                            setNatureza(e.target.value);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                   <div className="coluna-dupla">
                     <div className="bloco-input boco-botoes-grupo">
                       <button

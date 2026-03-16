@@ -115,6 +115,7 @@ interface PgamobileDB extends DBSchema {
       id: number;
       descricao: string;
       atualizadoEm: string;
+      Natureza: string;
     };
   };
   parceiro: {
@@ -634,10 +635,10 @@ function PedidoVendas() {
   let [pagina, setPagina] = useState(1);
   let [paginaItens, setPaginaItens] = useState(1);
   let [totalPaginasItens, setTotalPaginasItens] = useState(0);
-  const [qtdePaginaItens, setQtdePaginaItens] = useState(10);
+  const [qtdePaginaItens, setQtdePaginaItens] = useState(16);
   let [paginaItens2, setPaginaItens2] = useState(1);
   let [totalPaginasItens2, setTotalPaginasItens2] = useState(0);
-  const [qtdePaginaItens2, setQtdePaginaItens2] = useState(10);
+  const [qtdePaginaItens2, setQtdePaginaItens2] = useState(16);
   let [paginaList, setPaginaList] = useState(1);
   let [codCliente, setCodCliente] = useState('');
   let [tipoNegocia, setTipoNegocia] = useState('');
@@ -656,6 +657,7 @@ function PedidoVendas() {
   const [grupoPesquisa, setGrupoPesquisa] = useState<iDataSelect[]>([]);
   let [OptinosNegocia, setOptinosNegocia] = useState<iDataSelect[]>([]);
   const [OptinosEmpresa, setOptinosEmpresa] = useState<iDataSelect[]>([]);
+  
   const [promotorPesquisa, setPromotorPesquisa] = useState<iDataSelect[]>([]);
   const [promotorLoading, setPromotorLoading] = useState(false);
 
@@ -768,6 +770,8 @@ function PedidoVendas() {
   const [listaLoading, setListaLoading] = useState(false);
   const [mostrarTelaPedidoPrincipal, setMostrarTelaPedidoPrincipal] = useState(false);
 
+  
+
   useEffect(() => {
     if (isMobile && showlistaPedidos) {
       setPaginaList(1);
@@ -796,8 +800,6 @@ function PedidoVendas() {
     window.scrollTo(0, 0);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
-    setItensPedidoSelecionadoList([]);
-    itensPedidoSelecionadoList = [];
     await api
       .get(
         `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId}`
@@ -808,8 +810,12 @@ function PedidoVendas() {
         sucess = 100;
         setItensPedidoSelecionadoList(itensVindoGet);
         itensPedidoSelecionadoList = itensVindoGet;
-        setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
-        totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+        setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+        totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+        if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+          setPaginaItens(totalPaginasItens);
+          return;
+        }
         setItensPedidoSelecionado(
           itensVindoGet.slice(
             (paginaItens - 1) * qtdePaginaItens,
@@ -853,66 +859,98 @@ function PedidoVendas() {
         setShowMensageLoading(false);
       });
   }
-  function carregarNaturezaPadrao(tipoId: string | number) {
+  async function carregarNaturezaPadrao(tipoId: string | number) {
     try {
       const tipoStr = String(tipoId ?? '');
       if (tipoStr === '' || tipoStr === '0') {
         setNaturezaPadraoEdit('');
         return;
       }
-      const raw = localStorage.getItem(
-        '@Portal/tipoNegociacaoNaturezaPadrao'
-      );
-      const arr = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(arr)) {
-        const idNum =
-          typeof tipoId === 'string' ? Number(tipoId) : Number(tipoId);
-        const match = arr.filter(
-          (x: any) => Number(x?.id ?? x?.Id) === idNum
-        );
-        const found =
-          match.find((x: any) => x?.NaturezaPadrao) ??
-          match[0] ??
-          null;
-        setNaturezaPadraoEdit(
-          found?.NaturezaPadrao ? String(found.NaturezaPadrao).trim() : ''
-        );
-      } else {
+      try {
+        const raw = localStorage.getItem('@Portal/tipoNegociacaoNaturezaPadrao') || '[]';
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length > 0) {
+          const ach =
+            arr.find((x: any) => String(x?.id) === String(tipoStr)) ??
+            arr.find((x: any) => String(x?.Id) === String(tipoStr));
+          if (ach && ach?.NaturezaPadrao) {
+            setNaturezaPadraoEdit(String(ach.NaturezaPadrao).trim());
+            return;
+          }
+        }
+      } catch {}
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const store = db.transaction('tipoNegociacao', 'readonly').objectStore('tipoNegociacao');
+      const tipo = await store.get(Number(tipoId));
+      try { console.log('TIPO DE NATUREZA', 'IndexedDB', tipo); } catch {}
+      if (tipo && (tipo as any)?.Natureza) {
+        const nat = String((tipo as any).Natureza).trim();
+        setNaturezaPadraoEdit(nat);
+        try {
+          upsertNaturezaPadraoLocalStorage(tipoId, nat, (tipo as any)?.descricao, (tipo as any)?.atualizadoEm);
+        } catch {}
+        return;
+      }
+      try {
+        const resp = await api.get(`/api/TipoNegociacao/${tipoId}`);
+        try { console.log('TIPO DE NATUREZA', 'API', resp?.data); } catch {}
+        const nat = String(resp?.data?.Natureza || '').trim();
+        setNaturezaPadraoEdit(nat);
+        try {
+          upsertNaturezaPadraoLocalStorage(tipoId, nat, resp?.data?.descricao, resp?.data?.atualizadoEm);
+        } catch {}
+      } catch {
         setNaturezaPadraoEdit('');
       }
     } catch {
-      setNaturezaPadraoEdit('');
+      try {
+        const resp = await api.get(`/api/TipoNegociacao/${tipoId}`);
+        try { console.log('TIPO DE NATUREZA', 'API', resp?.data); } catch {}
+        const nat = String(resp?.data?.Natureza || '').trim();
+        setNaturezaPadraoEdit(nat);
+        try {
+          upsertNaturezaPadraoLocalStorage(tipoId, nat, resp?.data?.descricao, resp?.data?.atualizadoEm);
+        } catch {}
+      } catch {
+        setNaturezaPadraoEdit('');
+      }
     }
   }
-  function carregarNaturezaPadraoPorDescricao(descricao: string) {
+  async function carregarNaturezaPadraoPorDescricao(descricao: string) {
+    const normalize = (s: any) =>
+      String(s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toUpperCase();
     try {
-      const raw = localStorage.getItem(
-        '@Portal/tipoNegociacaoNaturezaPadrao'
-      );
-      const arr = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(arr)) {
-        const normalize = (s: any) =>
-          String(s ?? '')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim()
-            .toUpperCase();
-        const alvo = normalize(descricao);
-        const matches = arr.filter(
-          (x: any) => normalize(x?.descricao ?? x?.Descricao) == alvo
-        );
-        const item =
-          matches.find((x: any) => x?.NaturezaPadrao) ??
-          matches[0] ??
-          null;
-        setNaturezaPadraoEdit(
-          item?.NaturezaPadrao ? String(item.NaturezaPadrao).trim() : ''
-        );
-      } else {
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const store = db.transaction('tipoNegociacao', 'readonly').objectStore('tipoNegociacao');
+      const todos = await store.getAll();
+      const alvo = normalize(descricao);
+      const item = todos.find((t: any) => normalize(t?.descricao) === alvo);
+      if (item && item?.Natureza) {
+        setNaturezaPadraoEdit(String(item.Natureza).trim());
+        return;
+      }
+      try {
+        const resp = await api.get(`/api/TipoNegociacao?pagina=1&totalpagina=999`);
+        const lista = Array.isArray(resp?.data?.data) ? resp.data.data : [];
+        const ach = lista.find((t: any) => normalize(t?.descricao) === alvo);
+        setNaturezaPadraoEdit(String(ach?.Natureza || '').trim());
+      } catch {
         setNaturezaPadraoEdit('');
       }
     } catch {
-      setNaturezaPadraoEdit('');
+      try {
+        const resp = await api.get(`/api/TipoNegociacao?pagina=1&totalpagina=999`);
+        const lista = Array.isArray(resp?.data?.data) ? resp.data.data : [];
+        const alvo = normalize(descricao);
+        const ach = lista.find((t: any) => normalize(t?.descricao) === alvo);
+        setNaturezaPadraoEdit(String(ach?.Natureza || '').trim());
+      } catch {
+        setNaturezaPadraoEdit('');
+      }
     }
   }
 
@@ -960,7 +998,16 @@ function PedidoVendas() {
     []
   );
   let [tresUltimos, setTresUltimos] = useState<iPedidoVenda[]>([]);
-  let [pedidosSalvar, setPedidosSalvar] = useState<IItenPedidoSalvar[]>([]);
+  function mapArrayPedidoToSalvar(pal: string): IItenPedidoSalvar[] {
+    const itensValidos = arrayPedido.filter(
+      (item: IItensArrayPedido) => item.valUnit > 0 && item.valTotal > 0
+    );
+    return itensValidos.map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => ({
+      ...rest,
+      palMPV: pal,
+      baixado: '',
+    }));
+  }
 
   let [pedidoSelecao, setPedidoSelecao] = useState<iPedidoVenda[]>([]);
 
@@ -1021,6 +1068,14 @@ function PedidoVendas() {
   let [qtdItensVenc, setQuantItensVenc] = useState(0);
   let [valorItensVenc, setValorItensVenc] = useState(0);
   const [valorTotalNovo, setvalorTotalNovo] = useState(0);
+
+  useEffect(() => {
+    if (String(codEmpresa) === '2') {
+      setNaturezaPadraoEdit('110102 - Receita de Revenda de Mercadorias');
+    } else {
+      setNaturezaPadraoEdit('');
+    }
+  }, [codEmpresa]);
   let [conv, setConv] = useState(0);
   const [observacaoPDF, setobservacaoPDF] = useState('');
 
@@ -1135,6 +1190,15 @@ function PedidoVendas() {
   }, [tipoNegocia, OptinosNegocia, descTipo]);
 
   useEffect(() => {
+    const valor = String(tipoNegocia ?? '');
+    if (!valor) return;
+    const opt = OptinosNegocia.find((o) => String(o.value) === String(valor));
+    const label = opt?.label ? String(opt.label) : '';
+    if (label && descTipo !== label) {
+      setDescTipo(label);
+    }
+  }, [tipoNegocia, OptinosNegocia, descTipo]);
+  useEffect(() => {
     const checkOnlineStatus = () => {
       const statusValue = localStorage.getItem('@Portal/Status');
       console.log('testando app online', statusValue);
@@ -1195,37 +1259,72 @@ function PedidoVendas() {
     window.scrollTo(0, 0);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
-    setItensPedidoSelecionadoList([]);
-    itensPedidoSelecionadoList = [];
     console.log('entrou na busca', searchList);
     setCabecalhoPesquisa([]);
     cabecalhoPesquisa = [];
     const tabAtual = isMobile ? (tabOverride ?? mobileListaTab) : 'api';
     if (tabAtual === 'api') {
-      await api
-
-        .get(
+      try {
+        const response = await api.get(
           `/api/CabecalhoPedidoVenda/filter/status?pagina=${paginaList}&totalpagina=${qtdePaginaList}&codVendedor=${usuario.username}&codParceiro=${parceiroId || ''}&status=${searchList}`
-        )
-        .then((response) => {
-          console.log('Lista de pedidos', response.data);
-          const listaPedidos: ICabecalho2[] = response.data.data;
-
-          const novaLista = [...cabecalhoRasc, ...response.data.data];
-          console.log();
-
-          const itensUnicos: ICabecalho2[] = response.data.data.filter(
-            (item: ICabecalho2, index: number, self: ICabecalho2[]) => {
-              return self.findIndex((t) => t.palMPV === item.palMPV) === index;
+        );
+        console.log('Lista de pedidos', response.data);
+        const listaPedidos: ICabecalho2[] = response.data.data;
+        try {
+          const db = await openDB<PgamobileDB>('pgamobile', versao);
+          const txCab = db.transaction('cabecalhoPedidoVenda', 'readwrite');
+          const storeCab = txCab.objectStore('cabecalhoPedidoVenda');
+          const todosCab = await storeCab.getAll();
+          const porPal = new Map<string, ICabecalho2>();
+          for (const it of listaPedidos) {
+            porPal.set(String(it.palMPV || ''), it);
+          }
+          for (const cabLocal of todosCab as any[]) {
+            const pal = String(cabLocal?.palMPV || '');
+            const api = porPal.get(pal);
+            if (!api) continue;
+            const statusApi = String(api.status || '').trim();
+            const sincronizadoAtual = String(cabLocal.sincronizado || '');
+            if (sincronizadoAtual === 'R') continue;
+            const novoSync = statusApi === 'Enviado' || statusApi === 'Processar' ? 'S' : 'N';
+            if (novoSync !== sincronizadoAtual) {
+              cabLocal.sincronizado = novoSync;
+              await storeCab.put(cabLocal);
             }
-          );
-
-          setCabecalhoPesquisa(response.data.data);
-          cabecalhoPesquisa = response.data.data;
-
-          setTotalPaginasList(Math.ceil(response.data.total / qtdePaginaList));
-        })
-        .catch((error) => {});
+          }
+          await txCab.done;
+          const txItem = db.transaction('itemPedidoVenda', 'readwrite');
+          const storeItem = txItem.objectStore('itemPedidoVenda');
+          const todosItens = await storeItem.getAll();
+          for (const item of todosItens as any[]) {
+            const pal = String(item?.palMPV || '');
+            const api = porPal.get(pal);
+            if (!api) continue;
+            const statusApi = String(api.status || '').trim();
+            const sincronizadoAtual = String(item.sincronizado || '');
+            if (sincronizadoAtual === 'R') continue;
+            const novoSync = statusApi === 'Enviado' || statusApi === 'Processar' ? 'S' : 'N';
+            if (novoSync !== sincronizadoAtual) {
+              item.sincronizado = novoSync;
+              await storeItem.put(item);
+            }
+          }
+          await txItem.done;
+        } catch {}
+        const novaLista = [...cabecalhoRasc, ...response.data.data];
+        console.log();
+        const itensUnicos: ICabecalho2[] = response.data.data.filter(
+          (item: ICabecalho2, index: number, self: ICabecalho2[]) => {
+            return self.findIndex((t) => t.palMPV === item.palMPV) === index;
+          }
+        );
+        const pendentesPrimeiro = response.data.data.filter((it: any) => String(it?.status || '').trim() === 'Pendente');
+        const demais = response.data.data.filter((it: any) => String(it?.status || '').trim() !== 'Pendente');
+        const ordenada = [...pendentesPrimeiro, ...demais];
+        setCabecalhoPesquisa(ordenada);
+        cabecalhoPesquisa = ordenada;
+        setTotalPaginasList(Math.ceil(response.data.total / qtdePaginaList));
+      } catch (error) {}
     } else {
       try {
         const db = await openDB<PgamobileDB>('pgamobile', versao);
@@ -1288,6 +1387,87 @@ function PedidoVendas() {
       }
     }
   }
+
+  async function AtualizarPedidosLocaisPeloPalMPVDaApi() {
+    if (!isOnline) return;
+
+    try {
+      const resp = await api.get(
+        `/api/CabecalhoPedidoVenda/filter/status?pagina=1&totalpagina=999&codVendedor=${usuario.username}&codParceiro=${parceiroId || ''}&status=todos`
+      );
+
+      const listaApi: ICabecalho2[] = Array.isArray(resp?.data?.data)
+        ? resp.data.data
+        : [];
+
+      if (listaApi.length === 0) return;
+
+      const apiByPal = new Map<string, ICabecalho2>();
+      for (const it of listaApi) {
+        apiByPal.set(String(it?.palMPV || ''), it);
+      }
+
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const transaction = db.transaction('cabecalhoPedidoVenda', 'readwrite');
+      const store = transaction.objectStore('cabecalhoPedidoVenda');
+      const todosLocal = await store.getAll();
+
+      const locais = todosLocal.filter(
+        (item: any) =>
+          item.vendedorId == Number(usuario.username) &&
+          item.ativo != 'N' &&
+          String(item.sincronizado || '') === 'N'
+      );
+
+      for (const pedidoLocal of locais as any[]) {
+        const pal = String(pedidoLocal?.palMPV || '');
+        if (!pal) continue;
+
+        const pedidoApi = apiByPal.get(pal);
+        if (!pedidoApi) continue;
+
+        const statusApi = String(pedidoApi?.status || '').trim();
+        const statusLocal = String(pedidoLocal?.status || '').trim();
+
+        let mudou = false;
+        let novoId: number | null = null;
+
+        if (statusLocal === 'Não Enviado') {
+          pedidoLocal.status = 'Pendente';
+          mudou = true;
+        } else if (
+          statusLocal === 'Pendente' &&
+          (statusApi === 'Processar' || statusApi === 'Enviado')
+        ) {
+          pedidoLocal.status = statusApi;
+          mudou = true;
+        }
+
+        if (Number(pedidoApi?.id) > 0 && Number(pedidoApi?.id) !== Number(pedidoLocal?.id)) {
+          novoId = Number(pedidoApi.id);
+        }
+
+        if (novoId) {
+          const idAntigo = Number(pedidoLocal.id);
+          const existenteMesmoId: any = await store.get(novoId);
+          if (existenteMesmoId && String(existenteMesmoId?.palMPV || '') !== pal) {
+            await store.delete(existenteMesmoId.id);
+          }
+          if (idAntigo > 0) {
+            await store.delete(idAntigo);
+          }
+          pedidoLocal.id = novoId;
+          mudou = true;
+        }
+
+        if (mudou) {
+          await store.put(pedidoLocal);
+        }
+      }
+
+      await transaction.done;
+    } catch {}
+  }
   useEffect(() => {
     (async () => {
       if (showlistaPedidos && isMobile) {
@@ -1317,8 +1497,11 @@ function PedidoVendas() {
           console.log('Lista de pedidos', response.data);
           const listaPedidos: ICabecalho2[] = response.data.data;
 
-          setCabecalhoPesquisa(response.data.data);
-          cabecalhoPesquisa = response.data.data;
+          const pendentesPrimeiro = response.data.data.filter((it: any) => String(it?.status || '').trim() === 'Pendente');
+          const demais = response.data.data.filter((it: any) => String(it?.status || '').trim() !== 'Pendente');
+          const ordenada = [...pendentesPrimeiro, ...demais];
+          setCabecalhoPesquisa(ordenada);
+          cabecalhoPesquisa = ordenada;
           setTotalPaginasList(Math.ceil(response.data.total / qtdePaginaList));
           setShowlistaPedidos(true);
         })
@@ -2210,7 +2393,7 @@ function PedidoVendas() {
   useEffect(() => {
     if (showOperacao) {
       const id = setInterval(() => {
-        setOperacaoProgress((p: number) => (p >= 95 ? 5 : p + 5));
+        setOperacaoProgress((p: number) => (p >= 100 ? 100 : p >= 95 ? 5 : p + 5));
       }, 500);
       return () => clearInterval(id);
     }
@@ -2361,6 +2544,17 @@ function PedidoVendas() {
   let [itensNovosPedido, setitensNovosPedido] = useState<iItemPedidoVenda[]>(
     []
   );
+  const itensPaginaModal = React.useMemo(() => {
+    if (!showlistaPedidosSelec) return [];
+    if (!Array.isArray(itensPedidoSelecionadoList) || itensPedidoSelecionadoList.length === 0) {
+      return [];
+    }
+    const totalPaginasFront = Math.max(1, Math.ceil(itensPedidoSelecionadoList.length / qtdePaginaItens));
+    const currentPage = Math.min(Math.max(paginaItens, 1), totalPaginasFront);
+    const startIndex = (currentPage - 1) * qtdePaginaItens;
+    const endIndex = startIndex + qtdePaginaItens;
+    return itensPedidoSelecionadoList.slice(startIndex, endIndex);
+  }, [showlistaPedidosSelec, itensPedidoSelecionadoList, paginaItens, qtdePaginaItens]);
   const [itensLista, setitensLista] = useState<iItemPedidoVenda[]>([]);
   let [lc, setLc] = useState(0);
   let [saldo, setsaldo] = useState(0);
@@ -2370,32 +2564,73 @@ function PedidoVendas() {
   let [produtoescolhido, setProdutoescolhido] = useState('');
 
   useEffect(() => {
-    const valor = String(tipoNegociacaoPedidoSelecionadoId ?? '');
-    if (valor === '' || valor === '0') {
-      setNaturezaPadraoPedidoSelecionado('');
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(
-        '@Portal/tipoNegociacaoNaturezaPadrao'
-      );
-      const arr = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(arr)) {
-        const idNum = Number(valor);
-        const match = arr.filter(
-          (x: any) => Number(x?.id ?? x?.Id) === idNum
-        );
-        const found =
-          match.find((x: any) => x?.NaturezaPadrao) ?? match[0] ?? null;
-        setNaturezaPadraoPedidoSelecionado(
-          found?.NaturezaPadrao ? String(found.NaturezaPadrao).trim() : ''
-        );
-      } else {
-        setNaturezaPadraoPedidoSelecionado('');
+    const run = async () => {
+      const empSel = Number(filialPedidoSelecionado || 0);
+      if (empSel === 2) {
+        setNaturezaPadraoPedidoSelecionado('110102 - Receita de Revenda de Mercadorias');
+        return;
       }
-    } catch {
-      setNaturezaPadraoPedidoSelecionado('');
-    }
+      if (empSel && empSel !== 2) {
+        setNaturezaPadraoPedidoSelecionado('');
+        return;
+      }
+      const valor = String(tipoNegociacaoPedidoSelecionadoId ?? '');
+      if (valor === '' || valor === '0') {
+        setNaturezaPadraoPedidoSelecionado('');
+        return;
+      }
+      try {
+        const raw = localStorage.getItem('@Portal/tipoNegociacaoNaturezaPadrao') || '[]';
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length > 0) {
+          const ach =
+            arr.find((x: any) => String(x?.id) === String(valor)) ??
+            arr.find((x: any) => String(x?.Id) === String(valor));
+          if (ach && ach?.NaturezaPadrao) {
+            setNaturezaPadraoPedidoSelecionado(String(ach.NaturezaPadrao).trim());
+            return;
+          }
+        }
+      } catch {}
+      try {
+        const db = await openDB<PgamobileDB>('pgamobile', versao);
+        const store = db.transaction('tipoNegociacao', 'readonly').objectStore('tipoNegociacao');
+        const tipo = await store.get(Number(valor));
+        try { console.log('TIPO DE NATUREZA', 'IndexedDB', tipo); } catch {}
+        if (tipo && (tipo as any)?.Natureza) {
+          const nat = String((tipo as any).Natureza).trim();
+          setNaturezaPadraoPedidoSelecionado(nat);
+          try {
+            upsertNaturezaPadraoLocalStorage(valor, nat, (tipo as any)?.descricao, (tipo as any)?.atualizadoEm);
+          } catch {}
+          return;
+        }
+        try {
+          const resp = await api.get(`/api/TipoNegociacao/${valor}`);
+          try { console.log('TIPO DE NATUREZA', 'API', resp?.data); } catch {}
+          const nat = String(resp?.data?.Natureza || '').trim();
+          setNaturezaPadraoPedidoSelecionado(nat);
+          try {
+            upsertNaturezaPadraoLocalStorage(valor, nat, resp?.data?.descricao, resp?.data?.atualizadoEm);
+          } catch {}
+        } catch {
+          setNaturezaPadraoPedidoSelecionado('');
+        }
+      } catch {
+        try {
+          const resp = await api.get(`/api/TipoNegociacao/${valor}`);
+          try { console.log('TIPO DE NATUREZA', 'API', resp?.data); } catch {}
+          const nat = String(resp?.data?.Natureza || '').trim();
+          setNaturezaPadraoPedidoSelecionado(nat);
+          try {
+            upsertNaturezaPadraoLocalStorage(valor, nat, resp?.data?.descricao, resp?.data?.atualizadoEm);
+          } catch {}
+        } catch {
+          setNaturezaPadraoPedidoSelecionado('');
+        }
+      }
+    };
+    run();
   }, [tipoNegociacaoPedidoSelecionadoId]);
 
   //=============================================================//
@@ -3055,65 +3290,11 @@ function PedidoVendas() {
         }
 
         await LoginSankhya(0);
-        await SalvarNaturezaPadraoTipoNegociacao(vendedorCod);
         receberDadosSankhyaParceiro();
       })
       .catch((error) => {
         setLoading(false);
       });
-  }
-  async function SalvarNaturezaPadraoTipoNegociacao(
-    codVend: string | number
-  ) {
-    const sql = `SELECT 
-         CPL.SUGTIPNEGSAID AS Id, 
-         RTRIM(LTRIM(TPV.DESCRTIPVENDA)) AS Descricao, 
-         TPV.DHALTER AS AtualizadoEm, 
-         CAST(NAT.CODNAT AS VARCHAR) + ' - ' + NAT.DESCRNAT AS NaturezaPadrao 
-       FROM TGFCPL CPL 
-       LEFT JOIN ( 
-         SELECT 
-           CODTIPVENDA, 
-           DESCRTIPVENDA, 
-           MAX(DHALTER) AS DHALTER 
-         FROM TGFTPV 
-         GROUP BY CODTIPVENDA, DESCRTIPVENDA 
-       ) TPV ON TPV.CODTIPVENDA = CPL.SUGTIPNEGSAID 
-       JOIN TGFPAR PAR ON PAR.CODPARC = CPL.CODPARC 
-       LEFT JOIN TGFPPG PPG ON PPG.CODTIPVENDA = TPV.CODTIPVENDA 
-       LEFT JOIN TGFNAT NAT ON NAT.CODNAT = PPG.CODNATPAD 
-       WHERE PAR.CODVEND = ${codVend} 
-         AND PAR.ATIVO = 'S' 
-         AND PAR.CLIENTE = 'S'
-         AND NAT.CODNAT = 110102 
-       GROUP BY 
-         CPL.SUGTIPNEGSAID, 
-         RTRIM(LTRIM(TPV.DESCRTIPVENDA)), 
-         TPV.DHALTER, 
-         NAT.CODNAT, 
-         NAT.DESCRNAT`;
-    const sqlEncoded = encodeURIComponent(sql);
-    await api
-      .post(`/api/Sankhya/DadosDashSankhya?sql=${sqlEncoded}`)
-      .then((response) => {
-        const rows = response?.data?.responseBody?.rows || [];
-        const data = Array.isArray(rows)
-          ? rows.map((r: any) => ({
-              id: Array.isArray(r) ? r[0] : r?.Id ?? r?.ID ?? r?.id,
-              descricao: Array.isArray(r) ? r[1] : r?.Descricao ?? '',
-              atualizadoEm: Array.isArray(r) ? r[2] : r?.AtualizadoEm ?? '',
-              NaturezaPadrao:
-                Array.isArray(r) ? r[3] : r?.NaturezaPadrao ?? null,
-            }))
-          : [];
-        try {
-          localStorage.setItem(
-            '@Portal/tipoNegociacaoNaturezaPadrao',
-            JSON.stringify(data)
-          );
-        } catch {}
-      })
-      .catch(() => {});
   }
   async function receberDadosSankhyaParceiro() {
     setSucess(30);
@@ -3535,6 +3716,9 @@ function PedidoVendas() {
       await transaction.done;
       await db.close();
     }
+    setTimeout(() => {
+            window.location.reload();
+          }, 800);
   }
   //=============RECEBER DADOS MOBILE ===================================
   async function receberDadosSankhyaMobile() {
@@ -4665,9 +4849,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             },
             { value: '1', label: 'À VISTA' },
           ];
-
-          setOptinosNegocia(options);
-          OptinosNegocia = options;
+          const dedup = new Map<string, iDataSelect>();
+          options.forEach((opt) => {
+            const key = String(opt.value || '').trim();
+            if (key && !dedup.has(key)) dedup.set(key, opt);
+          });
+          const uniq = Array.from(dedup.values());
+          setOptinosNegocia(uniq);
+          OptinosNegocia = uniq;
         }
       } catch (error) {
         console.error('Erro ao obter o cliente:', error);
@@ -4685,9 +4874,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             },
             { value: '1', label: 'À VISTA' },
           ];
-
-          setOptinosNegocia(options);
-          OptinosNegocia = options;
+          const dedup = new Map<string, iDataSelect>();
+          options.forEach((opt: iDataSelect) => {
+            const key = String(opt.value || '').trim();
+            if (key && !dedup.has(key)) dedup.set(key, opt);
+          });
+          const uniq = Array.from(dedup.values());
+          setOptinosNegocia(uniq);
+          OptinosNegocia = uniq;
         })
         .catch((error) => {
           console.log('Ocorreu um erro');
@@ -4701,6 +4895,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   //========================================================
   async function Getcliente(idCliente: number) {
     console.log('id recebido no getid', idCliente);
+    setCondPagtoManual(false);
     setTipoEmpresaSelect([]);
     tipoEmpresaSelect = [];
     setOptinosEmpresa([]);
@@ -4757,22 +4952,24 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             setDescTipo('Não possui tipo de negociação');
             descTipo = 'Não possui tipo de negociação';
           }
-          const options: iDataSelect[] = [
-            {
-              value: String(clienteData.tipoNegociacao),
-              label: clienteData.descTipoNegociacao,
-            },
-            { value: '1', label: 'À VISTA' },
-          ];
+          try {
+            const tiposAll = await tipoNegociacaoStore.getAll();
+            const allOptions: iDataSelect[] = (tiposAll || []).map((tn: any) => ({
+              value: String(tn.id),
+              label: tn.descricao,
+            }));
+            const extras: iDataSelect[] = [{ value: '1', label: 'À VISTA' }];
+            const dedup = new Map<string, iDataSelect>();
+            [...allOptions, ...extras].forEach((opt) => {
+              const key = String(opt.value || '').trim();
+              if (key && !dedup.has(key)) dedup.set(key, opt);
+            });
+            const uniq = Array.from(dedup.values());
+            setOptinosNegocia(uniq);
+            OptinosNegocia = uniq;
+          } catch {}
 
-          setOptinosNegocia(options);
-          OptinosNegocia = options;
-
-          if (
-            !condPagtoManual &&
-            clienteData.tipoNegociacao &&
-            String(clienteData.tipoNegociacao) !== '0'
-          ) {
+          if (clienteData.tipoNegociacao && String(clienteData.tipoNegociacao) !== '0') {
             setTipoNegocia(String(clienteData.tipoNegociacao));
             tipoNegocia = String(clienteData.tipoNegociacao);
           }
@@ -4898,6 +5095,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         console.error('Erro ao obter o cliente:', error);
       }
     } else {
+      setCondPagtoManual(false);
       await api
         .get(`/api/Parceiro/${idCliente}`)
         .then(async (response) => {
@@ -4934,9 +5132,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             },
             { value: '1', label: 'À VISTA' },
           ];
-
-          setOptinosNegocia(options);
-          OptinosNegocia = options;
+          const dedup = new Map<string, iDataSelect>();
+          options.forEach((opt: iDataSelect) => {
+            const key = String(opt.value || '').trim();
+            if (key && !dedup.has(key)) dedup.set(key, opt);
+          });
+          const uniq = Array.from(dedup.values());
+          setOptinosNegocia(uniq);
+          OptinosNegocia = uniq;
 
           if (
             !condPagtoManual &&
@@ -5103,7 +5306,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           descTipo = 'Não possui tipo de negociação';
         }
         console.log('dados do cliente', clienteSelecionado);
-        setTipoNegocia(response.data.tipoNegociacao);
+        setTipoNegocia(String(response.data.tipoNegociacao));
         tipoNegocia = response.data.tipoNegociacao;
         setLc(response.data.lc);
         lc = response.data.lc;
@@ -7305,10 +7508,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   async function salvarItensDuplicados(itens: IItensArrayPedido[]) {
     if (!isMobile) {
       await api
-        .post('/api/ItemPedidoVenda', itens)
+        .post('/api/ItemPedidoVenda/Lista', itens)
         .then((response) => {
           console.log(response.data);
-          popularItem(itens, 'S');
+          popularItem(itens, 'N');
         })
         .catch((error) => {});
     } else {
@@ -7399,90 +7602,62 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   const [dataPedidoNovo, setdataPedidoNovo] = useState('');
   //===========enviar dados testando retirar ===============================
   async function SalvarItensPedido() {
-    await api
-      .post('/api/ItemPedidoVenda', pedidosSalvar)
-      .then(async (response) => {
-        console.log(response.data);
-        if (response.data.message == 'Alguns itens não puderam ser salvos.') {
-          setAlertErroMensage2(true);
-          if (response.data.errors && response.data.errors.length > 0) {
-            let errorMsg = '';
-            response.data.errors.forEach((error: any) => {
-              errorMsg += error + '\n';
-            });
-            setMsgErro2(`${response.data.message}:\n${errorMsg}`);
-          } else {
-            setMsgErro2(response.data.message);
-          }
-          return;
+    try {
+      const itensSalvar = mapArrayPedidoToSalvar(numPedido);
+      const response = await enviarItensEmLotes(itensSalvar);
+      const totalEnviado = itensSalvar.length;
+      const totalSalvos = Number(response?.data?.totalSalvos ?? 0);
+      if (totalSalvos !== totalEnviado) {
+        setAlertErroMensage2(true);
+        if (response.data.errors && response.data.errors.length > 0) {
+          let errorMsg = '';
+          response.data.errors.forEach((error: any) => {
+            errorMsg += error + '\n';
+          });
+          setMsgErro2(`${response.data.message}:\n${errorMsg}`);
+        } else {
+          setMsgErro2('Nem todos os itens foram salvos. Pedido marcado como Pendente.');
         }
-        const totalEsperado = pedidosSalvar.length;
-        const respostaVerificacao = await api.get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${totalEsperado}&pedidoId=${numPedido}`
-        );
-        const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
-        const totalApi = itensApi.length;
-        if (totalApi !== totalEsperado) {
-          setAlertErroMensage2(true);
-          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-          return;
-        }
-        popularItem(arrayPedido, 'N');
-        SalvarComoEnviado();
-      })
-      .catch((error) => {
-        setShowMensage(true);
-        setAlertErroMensage(true);
-        setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
-        popularItem(arrayPedido, 'N');
-      });
+        await SalvarCabecalhoPendente();
+        return;
+      }
+      popularItem(arrayPedido, 'N');
+      await SalvarCabecalhoEnviar();
+    } catch (error) {
+      setShowMensage(true);
+      setAlertErroMensage(true);
+      setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
+      popularItem(arrayPedido, 'N');
+    }
   }
   //==========Salvar como não enviado=========================
   async function SalvarItensPedidoPendente() {
     setShowMensageSankhya(true);
     setrespostaSank('Salvando Pedido...');
-    await api
-      .post('/api/ItemPedidoVenda', pedidosSalvar)
-      .then(async (response) => {
-        console.log(response.data);
-        if (response.data.message == 'Alguns itens não puderam ser salvos.') {
-          setAlertErroMensage2(true);
-          if (response.data.errors && response.data.errors.length > 0) {
-            let errorMsg = '';
-            response.data.errors.forEach((error: any) => {
-              errorMsg += error + '\n';
-            });
-            setMsgErro2(`${response.data.message}:\n${errorMsg}`);
-          } else {
-            setMsgErro2(response.data.message);
-          }
-          return;
-        }
-        const totalEsperado = pedidosSalvar.length;
-        const respostaVerificacao = await api.get(
-          `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${totalEsperado}&pedidoId=${numPedido}`
-        );
-        const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
-        const totalApi = itensApi.length;
-        if (totalApi !== totalEsperado) {
-          setAlertErroMensage2(true);
-          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-          return;
-        }
-        setAlertErroMensage2(false);
-        setMsgErro2('');
-        setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-         setOperacaoProgress(100);
-         setShowOperacao(false);
-        popularItem(arrayPedido, 'S');
-        SalvarComoPendente();
-      })
-      .catch((error) => {
-        setShowMensage(true);
-        setAlertErroMensage(true);
-        setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
-        popularItem(arrayPedido, 'N');
-      });
+    try {
+      const itensSalvar = mapArrayPedidoToSalvar(numPedido);
+      const response = await enviarItensEmLotes(itensSalvar);
+      const totalEnviado = itensSalvar.length;
+      const totalSalvos = Number(response?.data?.totalSalvos ?? 0);
+      if (totalSalvos !== totalEnviado) {
+        setAlertErroMensage2(true);
+        setMsgErro2('Nem todos os itens foram salvos. Pedido marcado como Pendente.');
+        await SalvarCabecalhoPendente();
+        return;
+      }
+      setAlertErroMensage2(false);
+      setMsgErro2('');
+      setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+      setOperacaoProgress(100);
+      setShowOperacao(false);
+      popularItem(arrayPedido, 'N');
+      SalvarComoPendente();
+    } catch (error) {
+      setShowMensage(true);
+      setAlertErroMensage(true);
+      setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
+      popularItem(arrayPedido, 'N');
+    }
   }
   //=====Erro ao enviar Sankya ======================================
   async function ErroCabecalhoEnviar() {
@@ -7609,7 +7784,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         pedidoVendaID = response.data.data.id;
         setidVenda(response.data.data.id);
         idVenda = response.data.data.id;
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho(cabecalho, 'N');
         localStorage.removeItem('@Portal/itensPedido');
         localStorage.removeItem('@Portal/cabecalhoPedido');
       })
@@ -7617,6 +7792,73 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         setShowMensage(true);
         setAlertErroMensage(true);
         setMsgErro('Pedido falhou ao salvar, tente novamente mais tarde.');
+        try {
+          popularCabecalho(cabecalho, 'N');
+        } catch {}
+      });
+  }
+
+  async function SalvarCabecalhoPendente() {
+    localStorage.removeItem('@Portal/PedidoEmDigitacao');
+    var data = new Date();
+    var dia = String(data.getDate()).padStart(2, '0');
+    var mes = String(data.getMonth() + 1).padStart(2, '0');
+    var ano = data.getFullYear();
+    var anoStr = String(ano);
+    var anoFinal = anoStr;
+    var hora = String(data.getHours()).padStart(2, '0');
+    var minutos = String(data.getMinutes()).padStart(2, '0');
+    var segundos = String(data.getSeconds()).padStart(2, '0');
+    `${ano}-${mes}-${dia}`;
+    var dataFilt2 = `${anoFinal}-${mes}-${dia}T${hora}:${minutos}:${segundos}Z`;
+    const dataPedidoatual = dataFilt2;
+    setdataPedidoNovo(String(dataPedidoatual));
+    setvalorTotalNovo(somaTotal);
+    setpalMpv(usuario.username + dataInicial);
+    palMpv = usuario.username + dataInicial;
+
+    const cabecalho: ICabecalho = {
+      vendedorId: Number(usuario.username),
+      parceiroId: Number(parceiroId),
+      filial: String(codEmpresa),
+      palMPV: numPedido,
+      status: 'Pendente',
+      tipPed: tipPed,
+      tipoNegociacaoId: Number(tipoNegocia),
+      data: dataPedidoatual,
+      pedido: '',
+      valor: somaTotal,
+      ativo: 'S',
+      versao: versaoFront,
+      dataEntrega: dataEntrega,
+      observacao: observacao,
+    };
+    await api
+      .post('/api/CabecalhoPedidoVenda', {
+        vendedorId: Number(usuario.username),
+        parceiroId: Number(parceiroId),
+        filial: String(codEmpresa),
+        palMPV: numPedido,
+        status: 'Pendente',
+        tipPed: tipPed,
+        tipoNegociacaoId: Number(tipoNegocia),
+        data: dataPedidoatual,
+        pedido: '',
+        valor: somaTotal,
+        dataEntrega: dataEntrega,
+        observacao: observacao,
+      })
+      .then((response) => {
+        try {
+          popularCabecalho(cabecalho, 'N');
+        } catch {}
+        localStorage.removeItem('@Portal/itensPedido');
+        localStorage.removeItem('@Portal/cabecalhoPedido');
+      })
+      .catch((error) => {
+        try {
+          popularCabecalho(cabecalho, 'N');
+        } catch {}
       });
   }
 
@@ -7690,6 +7932,57 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     }
   }
 
+  async function enviarItensEmLotes(itens: IItenPedidoSalvar[]) {
+    const total = itens.length || 0;
+    if (total === 0) return { data: { totalSalvos: 0 } };
+    if (showOperacao) {
+      if (total > 50) {
+        setOperacaoMsg(
+          [
+            'Seu pedido tem muitos itens',
+            'Enviaremos todos os itens em uma única chamada.',
+            `Processando ${total} itens...`,
+            'Aguarde, não feche esta tela.'
+          ].join('\n')
+        );
+        setOperacaoProgress(10);
+      } else {
+        setOperacaoMsg(`Enviando ${total} itens...`);
+        setOperacaoProgress(20);
+      }
+    } else if (showMensageSankhya || showMensage || showMensage2) {
+      if (total > 50) {
+        setrespostaSank(
+          [
+            'Seu pedido tem muitos itens',
+            'Enviaremos todos os itens em uma única chamada.',
+            `Processando ${total} itens...`,
+            'Aguarde, não feche esta tela.'
+          ].join('\n')
+        );
+        setSucess(10);
+      } else {
+        setrespostaSank(`Enviando ${total} itens...`);
+        setSucess(20);
+      }
+    }
+    const resp = await api.post('/api/ItemPedidoVenda/Lista', itens);
+    const totalSalvos = Number(resp?.data?.totalSalvos ?? 0);
+    const parcial = totalSalvos !== total;
+    if (showOperacao) {
+      setOperacaoMsg(
+        `Envio finalizado\n${parcial ? 'Alguns itens falharam' : 'Todos os itens enviados'}\nTotal enviado: ${total}\nTotal salvo: ${totalSalvos}\nAtualize a lista para conferir`
+      );
+      setOperacaoProgress(100);
+    } else if (showMensageSankhya || showMensage || showMensage2) {
+      setrespostaSank(
+        `Envio finalizado\n${parcial ? 'Alguns itens falharam' : 'Todos os itens enviados'}\nTotal enviado: ${total}\nTotal salvo: ${totalSalvos}\nAtualize a lista para conferir`
+      );
+      setSucess(100);
+    }
+    return resp ?? { data: { message: 'OK' } };
+  }
+
   //=======================================================
   const [salvo, setsalvo] = useState(false);
 
@@ -7755,60 +8048,40 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       setMsgErro2(mensagemErro);
     }
 
-    const updatedItems: IItenPedidoSalvar[] = arrayPedido
-      .filter(
-        (item: IItenPedidoSalvar) => item.valUnit > 0 && item.valTotal > 0
-      )
-      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => ({
-        ...rest,
-        palMPV: numPedido,
-      }));
-    setPedidosSalvar(updatedItems);
-    pedidosSalvar = updatedItems;
+    const itensSalvar = mapArrayPedidoToSalvar(numPedido);
 
     if (isOnline) {
       try {
-        const totalEsperado = pedidosSalvar.length;
-        setOperacaoMsg(`Enviando ${totalEsperado} itens ...`);
-        setOperacaoProgress(60);
-        const respItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
-        if (respItens?.data?.message == 'Alguns itens não puderam ser salvos.') {
-          setAlertErroMensage2(true);
-          if (respItens.data.errors && respItens.data.errors.length > 0) {
-            let errorMsg = '';
-            respItens.data.errors.forEach((error: any) => {
-              errorMsg += error + '\n';
-            });
-            setMsgErro2(`${respItens.data.message}:\n${errorMsg}`);
-          } else {
-            setMsgErro2(respItens.data.message);
-          }
-          setOperacaoMsg('Falha ao salvar itens.');
-          setOperacaoProgress(0);
-          return;
-        }
-        
-        // Consulta única de validação após todos os lotes
-        setOperacaoMsg('Verificando itens enviados...');
-        setOperacaoProgress(50);
-        const MAX_PAGE = 999;
-        let totalApi = 0;
-        for (let tentativa = 0; tentativa < 5; tentativa++) {
-          const respostaVerificacao = await api.get(
-            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${MAX_PAGE}&pedidoId=${numPedido}`
+        const totalEsperado = itensSalvar.length;
+        if (totalEsperado > 50) {
+          setOperacaoMsg(
+            [
+              'Seu pedido tem muitos itens',
+              'Enviaremos todos os itens em uma única chamada.',
+              `Processando ${totalEsperado} itens...`,
+              'Aguarde, não feche esta tela.'
+            ].join('\n')
           );
-          const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
-          totalApi = itensApi.length;
-          if (totalApi === totalEsperado) {
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 300));
+        } else {
+          setOperacaoMsg(`Enviando ${totalEsperado} itens...`);
         }
-        if (totalApi !== totalEsperado) {
+        setOperacaoProgress(60);
+        const respItens = await enviarItensEmLotes(itensSalvar);
+        const totalSalvos = Number(respItens?.data?.totalSalvos ?? 0);
+        if (totalSalvos !== totalEsperado) {
           setAlertErroMensage2(true);
-          setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-          setOperacaoMsg('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-          setOperacaoProgress(0);
+          setMsgErro2(
+            `Nem todos os itens foram salvos.\nItens enviados: ${totalEsperado}\nItens salvos: ${totalSalvos}\nCabeçalho será marcado como Pendente.`
+          );
+          await SalvarCabecalhoPendente();
+          setOperacaoMsg(
+            [
+              'Falha ao salvar todos os itens.',
+              `Itens enviados: ${totalEsperado}`,
+              `Itens salvos: ${totalSalvos}`
+            ].join('\n')
+          );
+          setOperacaoProgress(100);
           return;
         }
         setOperacaoMsg('Salvando cabeçalho...');
@@ -7825,7 +8098,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         `${ano}-${mes}-${dia}`;
         var dataFilt2 = `${anoFinal}-${mes}-${dia}T${hora}:${minutos}:${segundos}Z`;
         const dataPedidoatual = dataFilt2;
-        await api.post('/api/CabecalhoPedidoVenda', {
+        const respCab = await api.post('/api/CabecalhoPedidoVenda', {
           vendedorId: Number(usuario.username),
           parceiroId: Number(parceiroId),
           filial: String(codEmpresa),
@@ -7844,6 +8117,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         await popularItem(arrayPedido, 'N');
         setOperacaoMsg('Pedido salvo com sucesso!');
         setOperacaoProgress(100);
+        if (respCab?.status === 200) {
+          setOperacaoProgress(100);
+        }
       } catch (error) {
         setShowMensage(true);
         setAlertErroMensage(true);
@@ -8551,7 +8827,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         )
         .then((response) => {
           console.log('pedidos', response.data.data);
-
           const itensUnicos: iPedidoVenda[] = response.data.data.filter(
             (item: iPedidoVenda, index: number, self: iPedidoVenda[]) => {
               return self.findIndex((t) => t.palMPV === item.palMPV) === index;
@@ -9173,6 +9448,38 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       });
   }
 
+  async function DeletePedidoNuvemSelecionado(NumeroPalMPV: string) {
+    await api
+      .put(`/api/CabecalhoPedidoVenda/palmpv/${NumeroPalMPV}`)
+      .then((response) => {
+        popularListaDelete(NumeroPalMPV, 'S');
+      })
+      .catch((error) => {
+        popularListaDelete(NumeroPalMPV, 'N');
+      });
+  }
+
+  async function DeletePedidoSelecionado(NumeroPalMPV: string) {
+    setLoading(false);
+    const db = await openDB<PgamobileDB>('pgamobile', versao);
+    const transaction = db.transaction('cabecalhoPedidoVenda', 'readwrite');
+    const store = transaction.objectStore('cabecalhoPedidoVenda');
+
+    const allCabecalhos = await store.getAll();
+
+    for (const cabecalho of allCabecalhos) {
+      if (cabecalho.palMPV === NumeroPalMPV) {
+        cabecalho.ativo = 'N';
+        await store.put(cabecalho);
+      }
+    }
+    await transaction.done;
+    setLoading(false);
+    setShowMensage2(true);
+    setAlertErroMensage(true);
+    setMsgErro('Pedido excluido com sucesso.');
+    await DeletePedidoNuvemSelecionado(NumeroPalMPV);
+  }
   async function popularListaDelete(
     NumeroPalMPV: string,
     sincronizado: string
@@ -9240,6 +9547,31 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       }
       if (tipoNegLS > 0) {
         setTipoNegociacaoPedidoSelecionadoId(tipoNegLS);
+        setTipoNegocia(String(tipoNegLS));
+        tipoNegocia = String(tipoNegLS);
+        setCondPagtoManual(true);
+        const opt = OptinosNegocia.find(
+          (o) => String(o.value) === String(tipoNegLS)
+        );
+        if (opt?.label) {
+          setDescTipo(opt.label);
+          descTipo = opt.label;
+        } else {
+          const labelSeed =
+            tipoNegociacaoPedidoSelecionado ||
+            descTipo ||
+            'Selecionado';
+          const novo = { value: String(tipoNegLS), label: labelSeed };
+          if (!OptinosNegocia.some((o) => String(o.value) === String(tipoNegLS))) {
+            const novos = [novo, ...OptinosNegocia];
+            setOptinosNegocia(novos);
+            OptinosNegocia = novos;
+          }
+          if (!descTipo) {
+            setDescTipo(labelSeed);
+            descTipo = labelSeed;
+          }
+        }
       }
     } catch {}
     setEditando(true);
@@ -9291,6 +9623,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         setTipoNegocia(String(cabecalhoFilterId[0].tipoNegociacaoId));
         tipoNegocia = String(cabecalhoFilterId[0].tipoNegociacaoId);
+        setCondPagtoManual(true);
         setObservacao(cabecalhoFilterId[0].observacao);
         observacao = cabecalhoFilterId[0].observacao;
         setCodEmpresa(String(cabecalhoFilterId[0].filial));
@@ -9332,62 +9665,58 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         String(localStorage.getItem('@Portal/PedidoEmDigitacao') || '') ===
         'true';
       if (abrirViaListaNaoEnviado) {
+        const pal = String(palMPVEscolhido || localStorage.getItem('PedidoSelecionadoPALMPV') || '');
         await api
-          .get(`/api/CabecalhoPedidoVenda/${idPedidoSelecionado}`)
+          .get(`/api/CabecalhoPedidoVenda/palmpv/${pal}`)
           .then(async (resp) => {
-            const response = resp.data;
+            const cab = resp?.data?.cabecalho ?? resp?.data ?? {};
             GetTipNeg(Number(codCliente));
             if (
               statusPedidoSelecionado == 'Não Enviado' ||
               statusPedidoSelecionado == 'Rascunho' ||
               statusPedidoSelecionado == 'Falhou'
             ) {
-              setCabecalhoId(response?.id);
-              cabecalgoId = response?.id;
-              setnumPedido(response.palMPV);
-              numPedido = response.palMPV;
-              setDataPedidoId(response?.data);
-              dataPedidoId = response?.data;
+              setCabecalhoId(cab?.id);
+              cabecalgoId = cab?.id;
+              setnumPedido(cab?.palMPV);
+              numPedido = cab?.palMPV;
+              setDataPedidoId(cab?.data);
+              dataPedidoId = cab?.data;
             } else {
               setnumPedido(usuario.username + dataFormarPedido);
               numPedido = usuario.username + dataFormarPedido;
               NumeroNovoPedido();
             }
-          setTipoNegocia(response?.tipoNegociacaoId);
-            tipoNegocia = response?.tipoNegociacaoId;
-            setObservacao(response?.observacao);
-            observacao = response?.observacao;
-            setCodEmpresa(String(response?.filial));
-            codEmpresa = String(response?.filial);
-            setFilialPedidoSelecionado(response?.filial);
-            filialPedidoSelecionado = response?.filial;
-            setParceiroPedidoSelecionadoId(response?.parceiroId);
-            parceiroPedidoSelecionadoId = response?.parceiroId;
+            setTipoNegocia(String(cab?.tipoNegociacaoId));
+            tipoNegocia = cab?.tipoNegociacaoId;
+            setCondPagtoManual(true);
+            setObservacao(cab?.observacao);
+            observacao = cab?.observacao;
+            setCodEmpresa(String(cab?.filial));
+            codEmpresa = String(cab?.filial);
+            setFilialPedidoSelecionado(cab?.filial);
+            filialPedidoSelecionado = cab?.filial;
+            setParceiroPedidoSelecionadoId(cab?.parceiroId);
+            parceiroPedidoSelecionadoId = cab?.parceiroId;
             setParceiroPedidoSelecionado(
               String(localStorage.getItem('ClienteNome') || '')
             );
-            setSomaTotal(response.valor);
-            somaTotal = response.valor;
-            setDataentrega(response?.dataEntrega.substring(0, 10));
-            dataEntrega = response?.dataEntrega.substring(0, 10);
+            setSomaTotal(cab?.valor);
+            somaTotal = cab?.valor;
+            setDataentrega(String(cab?.dataEntrega || '').substring(0, 10));
+            dataEntrega = String(cab?.dataEntrega || '').substring(0, 10);
             setPagina(1);
             pagina = 1;
             setFilter(false);
             filter = false;
             await GetTabelaPreco();
-            await GetiTensTabelaPrecoDuplicada();
             setPesquisaPedido(false);
             pesquisaPedido = false;
             setTipoNegociacaoPedidoSelecionadoId(
-              Number(response?.tipoNegociacao?.id)
+              Number(cab?.tipoNegociacaoId || 0)
             );
-            setTipoNegociacaoPedidoSelecionado(
-              String(response?.tipoNegociacao?.descricao || '')
-            );
-            const itensResp = await api.get(
-              `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${response?.id}`
-            );
-            const itensVindoGet: iItemPedidoVenda[] = itensResp?.data?.data ?? [];
+            const itensVindoGet: iItemPedidoVenda[] =
+              (Array.isArray(resp?.data?.itens) ? resp?.data?.itens : []) as any;
             setItensPedidoSelecionadoList(itensVindoGet);
             itensPedidoSelecionadoList = itensVindoGet;
           setItensPedidoSelecionado(itensVindoGet || []);
@@ -9395,20 +9724,20 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             const novosItensAPI: IItensArrayPedido[] = [];
             itensVindoGet.forEach((item) => {
               const novoItem: IItensArrayPedido = {
-                vendedorId: item.vendedorId,
-                palMPV: item.palMPV,
-                produtoId: item.produtoId,
-                descProduto: item.produto?.nome,
-                quant: item.quant,
-                valUnit: item.valUnit,
-                valTotal: item.valTotal,
-                unidade: item.produto?.tipoUnid,
+                vendedorId: (item as any).vendedorId,
+                palMPV: (item as any).palMPV,
+                produtoId: (item as any).produtoId,
+                descProduto: (item as any)?.produto?.nome,
+                quant: (item as any).quant,
+                valUnit: (item as any).valUnit,
+                valTotal: (item as any).valTotal,
+                unidade: (item as any)?.produto?.tipoUnid,
                 produto: {
-                  nome: item.produto?.nome,
-                  conv: item.produto?.conv,
-                  aliIpi: item.produto?.aliIpi,
-                  tipoUnid: item.produto?.tipoUnid,
-                  tipoUnid2: item.produto?.tipoUnid2,
+                  nome: (item as any)?.produto?.nome,
+                  conv: (item as any)?.produto?.conv,
+                  aliIpi: (item as any)?.produto?.aliIpi,
+                  tipoUnid: (item as any)?.produto?.tipoUnid,
+                  tipoUnid2: (item as any)?.produto?.tipoUnid2,
                 },
               };
               novosItensAPI.push(novoItem);
@@ -9441,9 +9770,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           });
         return;
       }
+      const pal = String(palMPVEscolhido || localStorage.getItem('PedidoSelecionadoPALMPV') || '');
       await api
-        .get(`/api/CabecalhoPedidoVenda/${idPedidoSelecionado}`)
+        .get(`/api/CabecalhoPedidoVenda/palmpv/${pal}`)
         .then(async (response) => {
+          const cab = response?.data?.cabecalho ?? response?.data ?? {};
           console.log('pedido de venda a editar', response.data);
           GetTipNeg(Number(codCliente));
           if (
@@ -9451,61 +9782,56 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
-            setCabecalhoId(response.data?.id);
-            cabecalgoId = response.data?.id;
-            setnumPedido(response.data.palMPV);
-            numPedido = response.data.palMPV;
-            setDataPedidoId(response.data?.data);
-            dataPedidoId = response.data?.data;
+            setCabecalhoId(cab?.id);
+            cabecalgoId = cab?.id;
+            setnumPedido(cab?.palMPV);
+            numPedido = cab?.palMPV;
+            setDataPedidoId(cab?.data);
+            dataPedidoId = cab?.data;
           } else {
             setnumPedido(usuario.username + dataFormarPedido);
             numPedido = usuario.username + dataFormarPedido;
             NumeroNovoPedido();
           }
 
-          setTipoNegocia(response.data?.tipoNegociacaoId);
-          tipoNegocia = response.data?.tipoNegociacaoId;
-          setObservacao(response.data?.observacao);
-          observacao = response.data?.observacao;
-          setCodEmpresa(String(response.data?.filial));
-          codEmpresa = String(response.data?.filial);
-          setFilialPedidoSelecionado(response.data?.filial);
-          filialPedidoSelecionado = response.data?.filial;
-          setParceiroPedidoSelecionadoId(response.data.parceiroId);
-          parceiroPedidoSelecionadoId = response.data.parceiroId;
+          setTipoNegocia(String(cab?.tipoNegociacaoId));
+          tipoNegocia = cab?.tipoNegociacaoId;
+        setCondPagtoManual(true);
+          setObservacao(cab?.observacao);
+          observacao = cab?.observacao;
+          setCodEmpresa(String(cab?.filial));
+          codEmpresa = String(cab?.filial);
+          setFilialPedidoSelecionado(cab?.filial);
+          filialPedidoSelecionado = cab?.filial;
+          setParceiroPedidoSelecionadoId(cab?.parceiroId);
+          parceiroPedidoSelecionadoId = cab?.parceiroId;
           setParceiroPedidoSelecionado(
             String(localStorage.getItem('ClienteNome') || '')
           );
-          setSomaTotal(response.data.valor);
-          somaTotal = response.data.valor;
-          console.log('data atual 2', response.data?.dataEntrega);
-          console.log('data pedido', response.data?.data);
-          setDataentrega(response.data?.dataEntrega.substring(0, 10));
-          dataEntrega = response.data?.dataEntrega.substring(0, 10);
+          setSomaTotal(cab?.valor);
+          somaTotal = cab?.valor;
+          console.log('data atual 2', cab?.dataEntrega);
+          console.log('data pedido', cab?.data);
+          setDataentrega(String(cab?.dataEntrega || '').substring(0, 10));
+          dataEntrega = String(cab?.dataEntrega || '').substring(0, 10);
           setPagina(1);
           pagina = 1;
           setFilter(false);
           filter = false;
           await GetTabelaPreco();
-          await GetiTensTabelaPrecoDuplicada();
           setPesquisaPedido(false);
           pesquisaPedido = false;
           setTipoNegociacaoPedidoSelecionadoId(
-            Number(response.data?.tipoNegociacao?.id)
+            Number(cab?.tipoNegociacaoId || 0)
           );
-          setTipoNegociacaoPedidoSelecionado(
-            String(response.data?.tipoNegociacao?.descricao || '')
-          );
+          setTipoNegociacaoPedidoSelecionado(String(tipoNegociacaoPedidoSelecionado || ''));
           setPagina(1);
           pagina = 1;
           setFilter(false);
           filter = false;
           await GetTabelaPreco();
-          await GetiTensTabelaPrecoDuplicada();
-          const itensResp = await api.get(
-            `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${response.data?.id}`
-          );
-          const itensVindoGet: iItemPedidoVenda[] = itensResp?.data?.data ?? [];
+          const itensVindoGet: iItemPedidoVenda[] =
+            (Array.isArray(response?.data?.itens) ? response?.data?.itens : []) as any;
           setItensPedidoSelecionadoList(itensVindoGet);
           itensPedidoSelecionadoList = itensVindoGet;
           setItensPedidoSelecionado(itensVindoGet || []);
@@ -9609,6 +9935,31 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       }
       if (tipoNegLS > 0) {
         setTipoNegociacaoPedidoSelecionadoId(tipoNegLS);
+        setTipoNegocia(String(tipoNegLS));
+        tipoNegocia = String(tipoNegLS);
+        setCondPagtoManual(true);
+        const opt = OptinosNegocia.find(
+          (o) => String(o.value) === String(tipoNegLS)
+        );
+        if (opt?.label) {
+          setDescTipo(opt.label);
+          descTipo = opt.label;
+        } else {
+          const labelSeed =
+            tipoNegociacaoPedidoSelecionado ||
+            descTipo ||
+            'Selecionado';
+          const novo = { value: String(tipoNegLS), label: labelSeed };
+          if (!OptinosNegocia.some((o) => String(o.value) === String(tipoNegLS))) {
+            const novos = [novo, ...OptinosNegocia];
+            setOptinosNegocia(novos);
+            OptinosNegocia = novos;
+          }
+          if (!descTipo) {
+            setDescTipo(labelSeed);
+            descTipo = labelSeed;
+          }
+        }
       }
       console.log('entrou pendente 0333')
     } catch {}
@@ -9744,7 +10095,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             numPedido = usuario.username + dataFormarPedido;
             NumeroNovoPedido();
           }
-          setTipoNegocia(response?.tipoNegociacaoId);
+          setTipoNegocia(String(response?.tipoNegociacaoId));
           tipoNegocia = response?.tipoNegociacaoId;
           setObservacao(response?.observacao);
           try {
@@ -9939,7 +10290,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
               numPedido = usuario.username + dataFormarPedido;
               NumeroNovoPedido();
             }
-            setTipoNegocia(response?.tipoNegociacaoId);
+            setTipoNegocia(String(response?.tipoNegociacaoId));
             tipoNegocia = response?.tipoNegociacaoId;
             setObservacao(response?.observacao);
             try {
@@ -10065,7 +10416,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             NumeroNovoPedido();
           }
 
-          setTipoNegocia(response.data?.tipoNegociacaoId);
+          setTipoNegocia(String(response.data?.tipoNegociacaoId));
           tipoNegocia = response.data?.tipoNegociacaoId;
           setObservacao(response.data?.observacao);
           try {
@@ -10120,7 +10471,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           numPedido = usuario.username + dataFormarPedido;
           NumeroNovoPedido();
         }
-        setTipoNegocia(response.data?.tipoNegociacaoId);
+        setTipoNegocia(String(response.data?.tipoNegociacaoId));
         tipoNegocia = response.data?.tipoNegociacaoId;
         setObservacao(response.data?.observacao);
         try {
@@ -10330,6 +10681,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         idPedidoSelecionado = cabecalhoData.id;
         setpalMPVEscolhido(cabecalhoData.palMPV);
         palMPVEscolhido = cabecalhoData.palMPV;
+        setPaginaItens(1);
+        paginaItens = 1;
         setShowlistaPedidosSelec(true);
         setShowMensageLoading(false);
         setShowMensageLoadingDup(false);
@@ -10388,6 +10741,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         sucess = 50;
         setpalMPVEscolhido(response.data.palMPV);
         palMPVEscolhido = response.data.palMPV;
+        setPaginaItens(1);
+        paginaItens = 1;
         setShowlistaPedidosSelec(true);
         setShowMensageLoading(false);
         setShowMensageLoadingDup(false);
@@ -10511,56 +10866,131 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     sucess = 20;
     setShowMensageLoading(true);
     try {
-      const response = await api.get(`/api/CabecalhoPedidoVenda/${cod}`);
-      setPedidoSelecao(response.data);
-      setCabecalhoPedido(response.data);
-      pedidoSelecao = response.data;
-      setIdPedidoSelecionado(response.data?.id);
-      idPedidoSelecionado = response.data?.id;
-      setFilialPedidoSelecionado(response.data?.filial);
-      filialPedidoSelecionado = response.data?.filial;
-      setTipPed(response.data?.tipPed);
-      tipPed = response.data?.tipPed;
-      settipPedSelecionado(response.data?.tipPed);
-      tipPedSelecionado = response.data?.tipPed;
-      setDataEntregaPedidoSelecionado(response.data?.dataEntrega);
-      dataEntregaPedidoSelecionado = response.data?.dataEntrega;
-      setObservacaoPedidoSelecionado(response.data?.observacao);
-      observacaoPedidoSelecionado = response.data?.observacao;
-      setDataPedidoSelecionado(response.data?.data);
-      dataPedidoSelecionado = response.data?.data;
-      setNumeroPedidoSelecionado(response.data.palMPV);
-      numeroPedidoSelecionado = response.data.palMPV;
-      setNumeroPedidoSankhya(response.data.pedido);
-      numeroPedidoSankhya = response.data.pedido;
-      setStatusPedidoSelecionado(response.data.status);
-      statusPedidoSelecionado = response.data.status;
-      setParceiroPedidoSelecionadoId(response.data.parceiroId);
-      parceiroPedidoSelecionadoId = response.data.parceiroId;
-      setTipoNegociacaoPedidoSelecionadoId(response.data?.tipoNegociacao.id);
-      tipoNegociacaoPedidoSelecionadoId = response.data?.tipoNegociacao.id;
-      setTipoNegociacaoPedidoSelecionado(response.data?.tipoNegociacao.descricao);
-      tipoNegociacaoPedidoSelecionado = response.data?.tipoNegociacao.descricao;
-      setValorPedidoSelecionado(response.data.valor);
-      valorPedidoSelecionado = response.data.valor;
+      const resp = await api.get(`/api/CabecalhoPedidoVenda/palmpv/${pedido}`);
+      const cab = resp?.data?.cabecalho ?? resp?.data ?? {};
+      setPedidoSelecao(cab);
+      setCabecalhoPedido(cab);
+      pedidoSelecao = cab;
+      setIdPedidoSelecionado(cab?.id);
+      idPedidoSelecionado = cab?.id;
+      setFilialPedidoSelecionado(cab?.filial);
+      filialPedidoSelecionado = cab?.filial;
+      setTipPed(cab?.tipPed);
+      tipPed = cab?.tipPed;
+      settipPedSelecionado(cab?.tipPed);
+      tipPedSelecionado = cab?.tipPed;
+      setDataEntregaPedidoSelecionado(cab?.dataEntrega);
+      dataEntregaPedidoSelecionado = cab?.dataEntrega;
+      setObservacaoPedidoSelecionado(cab?.observacao);
+      observacaoPedidoSelecionado = cab?.observacao;
+      setDataPedidoSelecionado(cab?.data);
+      dataPedidoSelecionado = cab?.data;
+      setNumeroPedidoSelecionado(cab?.palMPV);
+      numeroPedidoSelecionado = cab?.palMPV;
+      setNumeroPedidoSankhya(cab?.pedido);
+      numeroPedidoSankhya = cab?.pedido;
+      setStatusPedidoSelecionado(cab?.status);
+      statusPedidoSelecionado = cab?.status;
+      setParceiroPedidoSelecionadoId(cab?.parceiroId);
+      parceiroPedidoSelecionadoId = cab?.parceiroId;
+      if (Number(cab?.filial ?? cab?.empresaId) === 2) {
+        setNaturezaPadraoPedidoSelecionado('110102 - Receita de Revenda de Mercadorias');
+      } else {
+        setNaturezaPadraoPedidoSelecionado('');
+      }
+      // define tipo negociação (id e descrição) a partir do campo disponível
+      const tipoNegIdLocal =
+        Number(cab?.tipoNegociacaoId || cab?.tipoNegociacao?.id || 0);
+      setTipoNegociacaoPedidoSelecionadoId(tipoNegIdLocal);
+      tipoNegociacaoPedidoSelecionadoId = tipoNegIdLocal;
+      if (cab?.tipoNegociacao?.descricao) {
+        setTipoNegociacaoPedidoSelecionado(String(cab?.tipoNegociacao?.descricao || ''));
+      } else {
+        try {
+          const dbTN = await openDB<PgamobileDB>('pgamobile', versao);
+          const stTN = dbTN.transaction('tipoNegociacao', 'readonly').objectStore('tipoNegociacao');
+          const tn = await stTN.get(tipoNegIdLocal);
+          if (tn?.descricao) {
+            setTipoNegociacaoPedidoSelecionado(String(tn.descricao));
+          } else {
+            try {
+              const r = await api.get(`/api/TipoNegociacao/${tipoNegIdLocal}`);
+              setTipoNegociacaoPedidoSelecionado(String(r?.data?.descricao || ''));
+            } catch {
+              setTipoNegociacaoPedidoSelecionado('');
+            }
+          }
+        } catch {
+          try {
+            const r = await api.get(`/api/TipoNegociacao/${tipoNegIdLocal}`);
+            setTipoNegociacaoPedidoSelecionado(String(r?.data?.descricao || ''));
+          } catch {
+            setTipoNegociacaoPedidoSelecionado('');
+          }
+        }
+      }
+      setValorPedidoSelecionado(cab?.valor);
+      valorPedidoSelecionado = cab?.valor;
       setSucess(50);
       sucess = 50;
-      setpalMPVEscolhido(response.data.palMPV);
-      palMPVEscolhido = response.data.palMPV;
+      setpalMPVEscolhido(String(cab?.palMPV || ''));
+      palMPVEscolhido = String(cab?.palMPV || '');
+      setPaginaItens(1);
+      paginaItens = 1;
       setShowlistaPedidosSelec(true);
       setShowMensageLoading(false);
       setShowMensageLoadingDup(false);
       setPesquisaPedido(true);
       pesquisaPedido = true;
       try {
-        localStorage.setItem('PedidoSelecionadoId', String(response.data?.id || '0'));
-        localStorage.setItem('PedidoSelecionadoPALMPV', String(response.data?.palMPV || ''));
-        localStorage.setItem('PedidoInfoFilial', String(response.data?.filial || ''));
-        localStorage.setItem('PedidoInfoTipoNegociacaoId', String(response.data?.tipoNegociacao?.id || ''));
-        localStorage.setItem('PedidoInfoTipPed', String(response.data?.tipPed || ''));
-        localStorage.setItem('PedidoInfoObservacao', String(response.data?.observacao || ''));
+        localStorage.setItem('PedidoSelecionadoId', String(cab?.id || '0'));
+        localStorage.setItem('PedidoSelecionadoPALMPV', String(cab?.palMPV || ''));
+        localStorage.setItem('PedidoInfoFilial', String(cab?.filial || ''));
+        localStorage.setItem('PedidoInfoTipoNegociacaoId', String(cab?.tipoNegociacaoId || ''));
+        localStorage.setItem('PedidoInfoTipPed', String(cab?.tipPed || ''));
+        localStorage.setItem('PedidoInfoObservacao', String(cab?.observacao || ''));
       } catch {}
-      await GetitensPedidoVendaIdListaApiPorId(pedido);
+      setItensPedidoSelecionado([]);
+      itensPedidoSelecionado = [];
+      const itensEmb = Array.isArray((resp as any)?.data?.itens) ? (resp as any).data.itens : [];
+      if (itensEmb.length > 0) {
+        setSucess(70);
+        sucess = 70;
+        const itensVindoGet: any[] = itensEmb;
+        setSucess(100);
+        sucess = 100;
+        setItensPedidoSelecionadoList(itensVindoGet as any);
+        itensPedidoSelecionadoList = itensVindoGet as any;
+        setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+        totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+        if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+          setPaginaItens(totalPaginasItens);
+          return;
+        }
+        setItensPedidoSelecionado(
+          itensVindoGet.slice((paginaItens - 1) * qtdePaginaItens, paginaItens * qtdePaginaItens) || []
+        );
+        itensPedidoSelecionado =
+          itensVindoGet.slice((paginaItens - 1) * qtdePaginaItens, paginaItens * qtdePaginaItens) || [];
+        let somaTotalIpiGet = 0;
+        itensVindoGet.forEach((item: any) => {
+          const valorCalculado = item?.produto?.aliIpi
+            ? item.valTotal + item.valTotal * (item.produto?.aliIpi / 100)
+            : item.valTotal;
+          somaTotalIpiGet += valorCalculado;
+        });
+        setValorPedidoSelecionado(
+          itensVindoGet.reduce((accumulator: any, item: any) => accumulator + item.valTotal, 0)
+        );
+        valorPedidoSelecionado = itensVindoGet.reduce(
+          (accumulator: any, item: any) => accumulator + item.valTotal,
+          0
+        );
+        setIpiEscolhido(somaTotalIpiGet);
+        IpiEscolhido = somaTotalIpiGet;
+      } else {
+        await GetitensPedidoVendaIdLista(cab?.id);
+      }
       setLoading(false);
       window.scrollTo(0, 0);
     } catch (error) {
@@ -10568,6 +10998,94 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       console.log('Erro ao buscar da API', error);
     }
   }
+
+  function upsertNaturezaPadraoLocalStorage(tipoId: string | number, natureza: string, descricao?: string, atualizadoEm?: string) {
+    try {
+      const raw = localStorage.getItem('@Portal/tipoNegociacaoNaturezaPadrao') || '[]';
+      const arr = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+      const idStr = String(tipoId);
+      const idx = arr.findIndex((x: any) => String(x?.id) === idStr || String(x?.Id) === idStr);
+      const novo = {
+        id: Number(tipoId),
+        descricao: String(descricao || ''),
+        atualizadoEm: String(atualizadoEm || ''),
+        NaturezaPadrao: String(natureza || ''),
+      };
+      if (idx >= 0) {
+        arr[idx] = { ...arr[idx], ...novo };
+      } else {
+        arr.push(novo);
+      }
+      localStorage.setItem('@Portal/tipoNegociacaoNaturezaPadrao', JSON.stringify(arr.map((x: any) => ({
+        id: Number(x?.id ?? x?.Id ?? 0),
+        descricao: String(x?.descricao ?? x?.Descricao ?? ''),
+        atualizadoEm: String(x?.atualizadoEm ?? x?.AtualizadoEm ?? ''),
+        NaturezaPadrao: String(x?.NaturezaPadrao ?? ''),
+      }))));
+    } catch {}
+  }
+
+  async function ensureNaturezaPadraoCache() {
+    try {
+      const raw = localStorage.getItem('@Portal/tipoNegociacaoNaturezaPadrao') || '[]';
+      let arr: any[] = [];
+      try {
+        arr = JSON.parse(raw);
+      } catch {
+        arr = [];
+      }
+      const precisaRebuild =
+        !Array.isArray(arr) ||
+        arr.length === 0 ||
+        arr.some((x: any) => x && (x.Id !== undefined || x.Descricao !== undefined));
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const store = db.transaction('tipoNegociacao', 'readonly').objectStore('tipoNegociacao');
+      const todos = await store.getAll();
+      if (precisaRebuild && Array.isArray(todos) && todos.length > 0) {
+        const data = (todos || []).map((t: any) => ({
+          id: t?.id,
+          descricao: t?.descricao,
+          atualizadoEm: t?.atualizadoEm ?? '',
+          NaturezaPadrao: t?.Natureza ?? null,
+        }));
+        try {
+          localStorage.setItem('@Portal/tipoNegociacaoNaturezaPadrao', JSON.stringify(data));
+        } catch {}
+      } else if (!precisaRebuild && Array.isArray(todos) && todos.length > 0) {
+        // normalize keys to lowercase if needed, merge NaturezaPadrao missing
+        const mapAtual: { [key: string]: any } = {};
+        arr.forEach((x: any) => {
+          const key = String(x?.id ?? x?.Id);
+          if (!key) return;
+          mapAtual[key] = {
+            id: Number(x?.id ?? x?.Id ?? 0),
+            descricao: String(x?.descricao ?? x?.Descricao ?? ''),
+            atualizadoEm: String(x?.atualizadoEm ?? x?.AtualizadoEm ?? ''),
+            NaturezaPadrao: String(x?.NaturezaPadrao ?? ''),
+          };
+        });
+        for (const t of todos) {
+          const key = String(t?.id);
+          const existente = mapAtual[key];
+          if (!existente || !existente.NaturezaPadrao) {
+            mapAtual[key] = {
+              id: Number(t?.id ?? 0),
+              descricao: String(t?.descricao ?? ''),
+              atualizadoEm: String(t?.atualizadoEm ?? ''),
+              NaturezaPadrao: String(t?.Natureza ?? ''),
+            };
+          }
+        }
+        try {
+          localStorage.setItem('@Portal/tipoNegociacaoNaturezaPadrao', JSON.stringify(Object.values(mapAtual)));
+        } catch {}
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    ensureNaturezaPadraoCache();
+  }, []);
   async function GetPedidoVendaIdModalLocal(pedido: any, cod: any) {
     setpalMPVEscolhido('');
     palMPVEscolhido = '';
@@ -10651,6 +11169,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         localStorage.setItem('PedidoInfoTipPed', String(escolhido.tipPed));
         localStorage.setItem('PedidoInfoObservacao', String(escolhido.observacao || ''));
       } catch {}
+      setPaginaItens(1);
+      paginaItens = 1;
       setShowlistaPedidosSelec(true);
       setShowMensageLoading(false);
       setShowMensageLoadingDup(false);
@@ -10676,8 +11196,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     setShowMensageLoading(true);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
-    setItensPedidoSelecionadoList([]);
-    itensPedidoSelecionadoList = [];
 
     console.log('pedidooo', cod);
     const vendedor = Number(usuario.username);
@@ -10885,15 +11403,55 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   }
 
   useEffect(() => {
-    GetitensPedidoVendaIdLista();
-  }, [paginaItens]);
+    if (!showlistaPedidosSelec) {
+      return;
+    }
+    if (!Array.isArray(itensPedidoSelecionadoList) || itensPedidoSelecionadoList.length === 0) {
+      setItensPedidoSelecionado([]);
+      itensPedidoSelecionado = [];
+      return;
+    }
+    const totalPaginasFront = Math.max(
+      1,
+      Math.ceil(itensPedidoSelecionadoList.length / qtdePaginaItens)
+    );
+    if (paginaItens > totalPaginasFront) {
+      setPaginaItens(totalPaginasFront);
+      return;
+    }
+    const startIndex = (paginaItens - 1) * qtdePaginaItens;
+    const endIndex = startIndex + qtdePaginaItens;
+    setItensPedidoSelecionado(itensPedidoSelecionadoList.slice(startIndex, endIndex) || []);
+    itensPedidoSelecionado = itensPedidoSelecionadoList.slice(startIndex, endIndex) || [];
+  }, [paginaItens, itensPedidoSelecionadoList, showlistaPedidosSelec]);
 
   useEffect(() => {
-    GetitensPedidoVendaId();
-  }, [paginaItens2]);
+    if (showlistaPedidosSelec) {
+      return;
+    }
+    if (!Array.isArray(itensPedidoSelecionadoList) || itensPedidoSelecionadoList.length === 0) {
+      setItensPedidoSelecionado([]);
+      itensPedidoSelecionado = [];
+      return;
+    }
+    const totalPaginasFront = Math.max(
+      1,
+      Math.ceil(itensPedidoSelecionadoList.length / qtdePaginaItens2)
+    );
+    if (paginaItens2 > totalPaginasFront) {
+      setPaginaItens2(totalPaginasFront);
+      return;
+    }
+    const startIndex = (paginaItens2 - 1) * qtdePaginaItens2;
+    const endIndex = startIndex + qtdePaginaItens2;
+    setItensPedidoSelecionado(itensPedidoSelecionadoList.slice(startIndex, endIndex) || []);
+    itensPedidoSelecionado = itensPedidoSelecionadoList.slice(startIndex, endIndex) || [];
+  }, [paginaItens2, itensPedidoSelecionadoList, showlistaPedidosSelec]);
 
   function modallista() {
     if (modalList) {
+      setPaginaItens(1);
+      paginaItens = 1;
       setShowlistaPedidosSelec(true);
     }
   }
@@ -10904,8 +11462,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     window.scrollTo(0, 0);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
-    setItensPedidoSelecionadoList([]);
-    itensPedidoSelecionadoList = [];
 
     const vendedor = Number(usuario.username);
     if (isMobile && mobileListaTab === 'api') {
@@ -10919,8 +11475,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           sucess = 100;
           setItensPedidoSelecionadoList(itensVindoGet);
           itensPedidoSelecionadoList = itensVindoGet;
-          setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
-          totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+          setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+          totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+          if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+            setPaginaItens(totalPaginasItens);
+            return;
+          }
           setItensPedidoSelecionado(
             itensVindoGet.slice(
               (paginaItens - 1) * qtdePaginaItens,
@@ -10991,8 +11551,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           sucess = 100;
           setItensPedidoSelecionadoList(itensVindoGet);
           itensPedidoSelecionadoList = itensVindoGet;
-          setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
-          totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+          setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+          totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+          if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+            setPaginaItens(totalPaginasItens);
+            return;
+          }
           setItensPedidoSelecionado(
             itensVindoGet.slice(
               (paginaItens - 1) * qtdePaginaItens,
@@ -11055,8 +11619,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         console.log('itens vindo do get', itensVindoGet);
         setItensPedidoSelecionadoList(itensVindoGet);
         itensPedidoSelecionadoList = itensVindoGet;
-        setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
-        totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+        setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+        totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+        if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+          setPaginaItens(totalPaginasItens);
+          return;
+        }
         console.log('Itens tabela preço:', itensVindoGet);
         setItensPedidoSelecionado(
           itensVindoGet.slice(
@@ -11112,8 +11680,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           sucess = 100;
           setItensPedidoSelecionadoList(itensVindoGet);
           itensPedidoSelecionadoList = itensVindoGet;
-          setTotalPaginasItens(Math.ceil(itensVindoGet.length / 10));
-          totalPaginasItens = Math.ceil(itensVindoGet.length / 10);
+          setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+          totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+          if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+            setPaginaItens(totalPaginasItens);
+            return;
+          }
           console.log('Itens tabela preço:', itensVindoGet);
           setItensPedidoSelecionado(
             itensVindoGet.slice(
@@ -11169,8 +11741,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     window.scrollTo(0, 0);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
-    setItensPedidoSelecionadoList([]);
-    itensPedidoSelecionadoList = [];
 
     const vendedor = Number(usuario.username);
     if (!isOnline) {
@@ -11194,8 +11764,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         setItensPedidoSelecionadoList(itensVindoGet);
         itensPedidoSelecionadoList = itensVindoGet;
-        setTotalPaginasItens2(Math.ceil(itensVindoGet.length / 10));
-        totalPaginasItens2 = Math.ceil(itensVindoGet.length / 10);
+        setTotalPaginasItens2(Math.ceil(itensVindoGet.length / qtdePaginaItens2));
+        totalPaginasItens2 = Math.ceil(itensVindoGet.length / qtdePaginaItens2);
+        if (totalPaginasItens2 > 0 && paginaItens2 > totalPaginasItens2) {
+          setPaginaItens2(totalPaginasItens2);
+          return;
+        }
         console.log('Itens tabela preço:', itensVindoGet);
         setItensPedidoSelecionado(
           itensVindoGet.slice(
@@ -11253,8 +11827,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
           setItensPedidoSelecionadoList(itensVindoGet);
           itensPedidoSelecionadoList = itensVindoGet;
-          setTotalPaginasItens2(Math.ceil(itensVindoGet.length / 10));
-          totalPaginasItens2 = Math.ceil(itensVindoGet.length / 10);
+          setTotalPaginasItens2(Math.ceil(itensVindoGet.length / qtdePaginaItens2));
+          totalPaginasItens2 = Math.ceil(itensVindoGet.length / qtdePaginaItens2);
+          if (totalPaginasItens2 > 0 && paginaItens2 > totalPaginasItens2) {
+            setPaginaItens2(totalPaginasItens2);
+            return;
+          }
           console.log('Itens tabela preço:', itensVindoGet);
           setItensPedidoSelecionado(
             itensVindoGet.slice(
@@ -11630,7 +12208,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       .then((response) => {
         console.log(response.data);
         console.log('entrouprocessar', cabecalho);
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho(cabecalho, 'N');
         localStorage.removeItem('@Portal/PedidoEmDigitacao');
         localStorage.removeItem('@Portal/itensPedido');
         setRealizandopedido(false);
@@ -11694,6 +12272,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       })
       .catch((error) => {
         console.log('entrouprocessar erro');
+        try {
+          popularCabecalho(cabecalho, 'N');
+        } catch {}
       });
 
     setMsgErro2(
@@ -11821,10 +12402,13 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         pesquisaPedido = false;
         GetTresUltimos();
         setShowMensageSankhya(false);
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho(cabecalho, 'N');
       })
       .catch((error) => {
         console.log(error);
+        try {
+          popularCabecalho({ ...cabecalho, status: 'Não Enviado' }, 'N');
+        } catch {}
       });
   }
 
@@ -11874,8 +12458,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     respostaSank = 'Enviando Pedido...';
     console.log('data do pedido 1', dataPedidoNovo);
     console.log('data de entrega 1', dataEntrega);
-    setPedidosSalvar([]);
-    pedidosSalvar = [];
+    // itens para envio serão derivados de arrayPedido on-demand
 
     const itensSemValor = arrayPedido.filter((item) => item.valUnit <= 0);
 
@@ -11888,13 +12471,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       setMsgErro2(mensagemErro);
     }
 
-    const updatedItems: IItenPedidoSalvar[] = arrayPedido
-      .filter(
-        (item: IItenPedidoSalvar) => item.valUnit > 0 && item.valTotal > 0
-      )
-      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => rest);
-    setPedidosSalvar(updatedItems);
-    pedidosSalvar = updatedItems;
+    const itensSalvarPendente = mapArrayPedidoToSalvar(numPedido);
 
     SalvarItensPedidoPendente();
     // await api
@@ -11981,16 +12558,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     }
     
     setOperacaoProgress(10);
-    const updatedItems: IItenPedidoSalvar[] = arrayPedido
-      .filter((item: IItenPedidoSalvar) => item.valUnit > 0 && item.valTotal > 0)
-      .map(({ descProduto, unidade, ...rest }: IItensArrayPedido) => ({
-        ...rest,
-        palMPV: numPedido,
-      }));
-    setPedidosSalvar(updatedItems);
-    pedidosSalvar = updatedItems;
+    const itensSalvar = mapArrayPedidoToSalvar(numPedido);
     
-    if (!Array.isArray(pedidosSalvar) || pedidosSalvar.length === 0) {
+    if (!Array.isArray(itensSalvar) || itensSalvar.length === 0) {
       setOperacaoMsg('Não há itens válidos para enviar.');
       setOperacaoProgress(100);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
@@ -11998,57 +12568,41 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     }
     
     // 1. ENVIAR TODOS OS ITENS EM UMA ÚNICA CHAMADA
-    setOperacaoMsg('Enviando itens...');
-    const totalEsperado = pedidosSalvar.length;
-    setOperacaoMsg(`Enviando ${totalEsperado} itens ...`);
+    const totalEsperado = itensSalvar.length;
+    if (totalEsperado > 50) {
+      setOperacaoMsg(
+        [
+          'Seu pedido tem muitos itens',
+          'Enviaremos todos os itens em uma única chamada.',
+          `Processando ${totalEsperado} itens...`,
+          'Aguarde, não feche esta tela.'
+        ].join('\n')
+      );
+    } else {
+      setOperacaoMsg(`Enviando ${totalEsperado} itens...`);
+    }
     setOperacaoProgress(60);
     
-    const respItens = await api.post('/api/ItemPedidoVenda', pedidosSalvar);
-    
-    if (respItens?.data?.message == 'Alguns itens não puderam ser salvos.') {
+    const respItens = await enviarItensEmLotes(itensSalvar);
+    const totalSalvos = Number(respItens?.data?.totalSalvos ?? 0);
+    if (totalSalvos !== totalEsperado) {
       setAlertErroMensage2(true);
-      if (respItens.data.errors && respItens.data.errors.length > 0) {
-        let errorMsg = '';
-        respItens.data.errors.forEach((error: any) => {
-          errorMsg += error + '\n';
-        });
-        setMsgErro2(`${respItens.data.message}:\n${errorMsg}`);
-      } else {
-        setMsgErro2(respItens.data.message);
-      }
-      setOperacaoMsg('Falha ao salvar itens.');
-      setOperacaoProgress(0);
-      localStorage.removeItem('@Portal/PedidoEmDigitacao');
-      return;
-    }
-    
-    // 2. VERIFICAR QUANTIDADE DE ITENS SALVOS
-    setOperacaoMsg('Verificando itens enviados...');
-    setOperacaoProgress(65);
-    
-    const MAX_PAGE = 999;
-    let totalApi = 0;
-    for (let tentativa = 0; tentativa < 5; tentativa++) {
-      const respostaVerificacao = await api.get(
-        `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=${MAX_PAGE}&pedidoId=${numPedido}`
+      setMsgErro2(
+        `Nem todos os itens foram salvos.\nItens enviados: ${totalEsperado}\nItens salvos: ${totalSalvos}\nCabeçalho será marcado como Pendente.`
       );
-      const itensApi = (respostaVerificacao?.data?.data as any[]) || [];
-      totalApi = itensApi.length;
-      if (totalApi === totalEsperado) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-    
-    if (totalApi !== totalEsperado) {
-      setAlertErroMensage2(true);
-      setMsgErro2('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-      setOperacaoMsg('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-      setOperacaoProgress(0);
+      await SalvarCabecalhoPendente();
+      setOperacaoMsg(
+        [
+          'Falha ao salvar todos os itens.',
+          `Itens enviados: ${totalEsperado}`,
+          `Itens salvos: ${totalSalvos}`
+        ].join('\n')
+      );
+      setOperacaoProgress(100);
       localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
-    
+
     setOperacaoMsg('Salvando cabeçalho...');
     setOperacaoProgress(75);
     
@@ -12088,13 +12642,27 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     
     localStorage.removeItem('@Portal/PedidoEmDigitacao');
     
-    api.post('/api/CabecalhoPedidoVenda', cabecalho).then(() => {
-      popularCabecalho(cabecalho, 'S');
-      popularItem(arrayPedido, 'S');
-      setOperacaoMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-      setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
-      setOperacaoProgress(100);
-    });
+    try {
+      const respCab = await api.post('/api/CabecalhoPedidoVenda', cabecalho);
+      if (respCab?.status === 200) {
+        popularCabecalho(cabecalho, 'S');
+        popularItem(arrayPedido, 'S');
+        setOperacaoMsg('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+        setOperacaoProgress(100);
+      } else {
+        setOperacaoMsg('Falha ao salvar cabeçalho do pedido.');
+        setOperacaoProgress(0);
+      }
+    } catch (error: any) {
+      setOperacaoMsg(
+        String(
+          error?.response?.data?.message ??
+            error?.message ??
+            'Erro ao comunicar com servidor!'
+        )
+      );
+      setOperacaoProgress(0);
+    }
   }
   //===============verificação de envio de pedido entre os 03 ultimos===========================//
   //===================deletar em caso de erro (NÃO MAIS UTILIZADO ERA QUANDO ERA ENVIADO DIRETAMENTE AO SANKHYA)========================//
@@ -12248,48 +12816,22 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     };
     console.log('entrou no enviar teste', cabecalho);
 
-    const itensSalvarPos: IItenPedidoSalvar[] = (itensPedidoSelecionadoList || itensPedidoSelecionado || []).map(
-      (item: any) => ({
-        vendedorId: Number(usuario.username),
-        palMPV: String(numeroPedidoSelecionado),
-        produtoId: Number(item?.produtoId),
-        quant: Number(item?.quant),
-        valUnit: Number(item?.valUnit),
-        valTotal: Number(item?.valTotal),
-      })
-    );
+    const srcItens = (itensPedidoSelecionadoList || itensPedidoSelecionado || []);
+    const totalEnvio = Array.isArray(srcItens) ? srcItens.length : 0;
+    const itensSalvarPos: IItenPedidoSalvar[] = srcItens.map((item: any) => ({
+      vendedorId: Number(usuario.username),
+      palMPV: String(numeroPedidoSelecionado),
+      produtoId: Number(item?.produtoId),
+      quant: Number(item?.quant),
+      valUnit: Number(item?.valUnit),
+      valTotal: Number(item?.valTotal),
+      baixado: '',
+    }));
     const arred = (n: number) => Math.round(n * 100) / 100;
-    const respVerif = await api.get(
-      `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
-    );
-    const itensApi = (respVerif?.data?.data as any[]) || [];
-    const totalApi = itensApi.length;
-    const totalEsperado = itensSalvarPos.length;
-    if (totalApi !== totalEsperado) {
-      const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
-      if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
-        setrespostaSank('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-        await api.post('/api/CabecalhoPedidoVenda', {
-          vendedorId: usuario.username,
-          parceiroId: parceiroPedidoSelecionadoId,
-          id: idPedidoSelecionado,
-          filial: filialPedidoSelecionado,
-          palMPV: numeroPedidoSelecionado,
-          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
-          data: dataPedidoSelecionado,
-          pedido: '',
-          status: 'Não Salvo',
-          tipPed: tipPedSelecionado,
-          valor: valorPedidoSelecionado,
-          dataEntrega: dataEntregaPedidoSelecionado,
-          observacao: observacaoPedidoSelecionado,
-          ativo: 'S',
-          versao: versaoFront,
-        });
-        return;
-      }
-      
-    }
+    
+    const respItens = await enviarItensEmLotes(itensSalvarPos);
+    const totalSalvos = Number(respItens?.data?.totalSalvos ?? 0);
+    const statusHeader = totalSalvos === totalEnvio ? 'Não Enviado' : 'Pendente';
 
     await api
       .post('/api/CabecalhoPedidoVenda', {
@@ -12301,25 +12843,28 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
         data: dataPedidoSelecionado,
         pedido: '',
-        status: 'Enviado',
+        status: statusHeader,
         tipPed: tipPedSelecionado,
         valor: valorPedidoSelecionado,
         dataEntrega: dataEntregaPedidoSelecionado,
         observacao: observacaoPedidoSelecionado,
       })
       .then((response) => {
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho({ ...cabecalho, status: statusHeader }, 'N');
         console.log('entrou no enviar teste', response.data);
 
         setShowMensage(true);
         setAlertErroMensage(true);
 
-        setMsgErro('Pedido enviado com sucesso.');
+        setMsgErro(statusHeader === 'Pendente' ? 'Pedido salvo como Pendente.' : 'Pedido salvo como Não Enviado.');
         setPesquisaPedido(false);
         pesquisaPedido = false;
         GetTresUltimos();
       })
       .catch((error) => {
+        try {
+          popularCabecalho({ ...cabecalho, status: 'Pendente' }, 'N');
+        } catch {}
         return;
       });
   }
@@ -12347,48 +12892,22 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     };
     console.log('entrou no enviar teste', cabecalho);
 
-    const itensSalvarPos: IItenPedidoSalvar[] = (itensPedidoSelecionadoList || itensPedidoSelecionado || []).map(
-      (item: any) => ({
-        vendedorId: Number(usuario.username),
-        palMPV: String(numeroPedidoSelecionado),
-        produtoId: Number(item?.produtoId),
-        quant: Number(item?.quant),
-        valUnit: Number(item?.valUnit),
-        valTotal: Number(item?.valTotal),
-      })
-    );
+    const srcItens = (itensPedidoSelecionadoList || itensPedidoSelecionado || []);
+    const totalEnvio = Array.isArray(srcItens) ? srcItens.length : 0;
+    const itensSalvarPos: IItenPedidoSalvar[] = srcItens.map((item: any) => ({
+      vendedorId: Number(usuario.username),
+      palMPV: String(numeroPedidoSelecionado),
+      produtoId: Number(item?.produtoId),
+      quant: Number(item?.quant),
+      valUnit: Number(item?.valUnit),
+      valTotal: Number(item?.valTotal),
+      baixado: '',
+    }));
     const arred = (n: number) => Math.round(n * 100) / 100;
-    const respVerif = await api.get(
-      `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${numeroPedidoSelecionado}`
-    );
-    const itensApi = (respVerif?.data?.data as any[]) || [];
-    const totalApi = itensApi.length;
-    const totalEsperado = itensSalvarPos.length;
-    if (totalApi !== totalEsperado) {
-      const respPost = await api.post('/api/ItemPedidoVenda', itensSalvarPos);
-      if (respPost?.data?.message == 'Alguns itens não puderam ser salvos.') {
-        setrespostaSank('Houve erro no envio dos itens. Verifique sua conexão com a internet e tente novamente mais tarde.');
-        await api.post('/api/CabecalhoPedidoVenda', {
-          vendedorId: usuario.username,
-          parceiroId: parceiroPedidoSelecionadoId,
-          id: idPedidoSelecionado,
-          filial: filialPedidoSelecionado,
-          palMPV: numeroPedidoSelecionado,
-          tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
-          data: dataPedidoSelecionado,
-          pedido: '',
-          status: 'Não Salvo',
-          tipPed: tipPedSelecionado,
-          valor: valorPedidoSelecionado,
-          dataEntrega: dataEntregaPedidoSelecionado,
-          observacao: observacaoPedidoSelecionado,
-          ativo: 'S',
-          versao: versaoFront,
-        });
-        return;
-      }
-      
-    }
+    
+    const respItens = await enviarItensEmLotes(itensSalvarPos);
+    const totalSalvos = Number(respItens?.data?.totalSalvos ?? 0);
+    const statusHeader = totalSalvos === totalEnvio ? 'Processar' : 'Pendente';
 
     await api
       .post('/api/CabecalhoPedidoVenda', {
@@ -12400,7 +12919,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         tipoNegociacaoId: tipoNegociacaoPedidoSelecionadoId,
         data: dataPedidoSelecionado,
         pedido: '',
-        status: 'Processar',
+        status: statusHeader,
         tipPed: tipPedSelecionado,
         valor: valorPedidoSelecionado,
         dataEntrega: dataEntregaPedidoSelecionado,
@@ -12409,17 +12928,26 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         versao: versaoFront,
       })
       .then((response) => {
-        setrespostaSank('Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!');
+        setrespostaSank(
+          statusHeader === 'Pendente'
+            ? 'Itens parciais salvos. Cabeçalho marcado como Pendente.'
+            : 'Seu pedido está sendo enviado ao Sankhya, aguarde o processamento!'
+        );
         setOperacaoProgress(100);
         setShowOperacao(false);
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho({ ...cabecalho, status: statusHeader }, 'N');
         console.log('entrou no enviar teste', response.data);
         setPesquisaPedido(false);
         pesquisaPedido = false;
         GetTresUltimos();
       })
       .catch((error) => {
-        setrespostaSank('Erro ao enviar seu pedido. Ele continuará como "Não enviado". Tente de novo mais tarde!');
+        setrespostaSank(
+          'Erro ao enviar seu pedido. Ele continuará como "Não enviado". Tente de novo mais tarde!'
+        );
+        try {
+          popularCabecalho({ ...cabecalho, status: 'Pendente' }, 'N');
+        } catch {}
         return;
       });
   }
@@ -12586,7 +13114,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         observacao: observacaoPedidoSelecionado,
       })
       .then((response) => {
-        popularCabecalho(cabecalho, 'S');
+        popularCabecalho(cabecalho, 'N');
         console.log('entrou no enviar teste', response.data);
         EnviarDadosSankhya03Ultimos();
       })
@@ -12677,6 +13205,19 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     setnenviados(true);
     setSearchList('Não Enviado');
     searchList = 'Não Enviado';
+    GetListaCabecalho();
+  }
+  const [pendenteErro, setPendenteErro] = useState(false);
+  function PesquisaPendenteErro() {
+    setPaginaList(1);
+    paginaList = 1;
+    settodos(false);
+    setenviados(false);
+    setpendentes(false);
+    setnenviados(false);
+    setPendenteErro(true);
+    setSearchList('Pendente');
+    searchList = 'Pendente';
     GetListaCabecalho();
   }
   //==============================================================================================
@@ -12900,6 +13441,18 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                 {formataData(dataPedidoSelecionado)}
                               </h1>
                             </div>
+                          <div style={{ marginLeft: 'auto', alignSelf: 'center' }}>
+                            <h1 className="super-sub-texto" style={{ textAlign: 'right' }}>
+                              Quant. Itens:{' '}
+                              <span style={{ color: '#2031ed' }}>
+                                {Array.isArray(itensPedidoSelecionadoList) && itensPedidoSelecionadoList.length > 0
+                                  ? itensPedidoSelecionadoList.reduce((acc: number, it: any) => acc + Number(it?.quant || 0), 0)
+                                  : Array.isArray(itensPedidoSelecionado)
+                                  ? itensPedidoSelecionado.reduce((acc: number, it: any) => acc + Number(it?.quant || 0), 0)
+                                  : 0}
+                              </span>
+                            </h1>
+                          </div>
                           </div>
                           <div className="dflexivel2">
                             <div className="divisaoCentral">
@@ -12926,6 +13479,30 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                 R$ {moeda(ufCliente === 'CE' ? valorPedidoSelecionado : IpiEscolhido)}
                               </h1>
                             </div>
+                            <div style={{ marginLeft: 'auto', alignSelf: 'center' }}>
+                              <h1 className="super-sub-texto" style={{ textAlign: 'right' }}>
+                                Quant. Itens:{' '}
+                                <span style={{ color: '#2031ed' }}>
+                                  {Array.isArray(itensPedidoSelecionadoList) && itensPedidoSelecionadoList.length > 0
+                                    ? itensPedidoSelecionadoList.reduce((acc: number, it: any) => acc + Number(it?.quant || 0), 0)
+                                    : Array.isArray(itensPedidoSelecionado)
+                                    ? itensPedidoSelecionado.reduce((acc: number, it: any) => acc + Number(it?.quant || 0), 0)
+                                    : 0}
+                                </span>
+                              </h1>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                            <h1 className="super-sub-texto" style={{ textAlign: 'right' }}>
+                              Quant. Itens:{' '}
+                              <span style={{ color: '#2031ed' }}>
+                                {Array.isArray(itensPedidoSelecionadoList) && itensPedidoSelecionadoList.length > 0
+                                  ? itensPedidoSelecionadoList.length
+                                  : Array.isArray(itensPedidoSelecionado)
+                                  ? itensPedidoSelecionado.length
+                                  : 0}
+                              </span>
+                            </h1>
                           </div>
                         </div>
                       </div>
@@ -13090,7 +13667,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     )
                                   )}
                                 </>
-                              ) : (
+                              ) : sucess < 100 ? (
                                 <div
                                   style={{ margin: 'auto' }}
                                   className="alert alert-warning alerta-item"
@@ -13098,12 +13675,20 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                 >
                                   Carregando dados...
                                 </div>
+                              ) : (
+                                <div
+                                  style={{ margin: 'auto' }}
+                                  className="alert alert-warning alerta-item"
+                                  role="alert"
+                                >
+                                  Nenhum item encontrado.
+                                </div>
                               )}
                             </tbody>
                           </Table>
                           <Paginacao
-                            total={totalPaginasItens2}
-                            limit={1}
+                            total={itensPedidoSelecionadoList?.length ?? 0}
+                            limit={qtdePaginaItens2}
                             paginaAtual={paginaItens2}
                             setPagina={setPaginaItens2}
                           />
@@ -13670,6 +14255,21 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     carregarNaturezaPadraoPorDescricao(opt?.text || '');
                                     }}
                                   >
+                                    {!OptinosNegocia.some(
+                                      (o) => String(o.value) === String(tipoNegocia)
+                                    ) && (
+                                      <option
+                                        key={`fallback-${String(tipoNegocia)}`}
+                                        value={String(tipoNegocia)}
+                                      >
+                                        {OptinosNegocia.find(
+                                          (o) => String(o.value) === String(tipoNegocia)
+                                        )?.label ||
+                                          tipoNegociacaoPedidoSelecionado ||
+                                          descTipo ||
+                                          'Selecionado'}
+                                      </option>
+                                    )}
                                     {OptinosNegocia.map((tipo) => (
                                       <option key={String(tipo.value)} value={tipo.value}>
                                         {tipo.label}
@@ -13681,8 +14281,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     id="condpag"
                                     className="form-select select inputparceiro  campo-select"
                                     aria-label=""
+                                    value={tipoNegocia}
                                     onChange={(e) => {
-                                    setCondPagtoManual(true);
+                                      setCondPagtoManual(true);
                                       setTipoPagamento(e.target.value);
                                       setTipoNegocia(e.target.value);
                                       tipoNegocia = e.target.value;
@@ -13690,17 +14291,28 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                       const opt = (e.target as HTMLSelectElement).options[
                                         (e.target as HTMLSelectElement).selectedIndex
                                       ];
-                                      console.log(
-                                        'Cond. Pagamento selecionada - tipo de Natureza:',
-                                        opt?.text
-                                      );
-                                    carregarNaturezaPadraoPorDescricao(opt?.text || '');
+                                      carregarNaturezaPadraoPorDescricao(opt?.text || '');
                                     }}
                                   >
-                                    <option value={tipoNegocia}>
-                                      {descTipo}
-                                    </option>
-                                    <option value="1">À VISTA</option>
+                                    {!OptinosNegocia.some(
+                                      (o) => String(o.value) === String(tipoNegocia)
+                                    ) && (
+                                      <option
+                                        key={`fallback-${String(tipoNegocia)}`}
+                                        value={String(tipoNegocia || '')}
+                                      >
+                                        {OptinosNegocia.find(
+                                          (o) => String(o.value) === String(tipoNegocia)
+                                        )?.label ||
+                                          descTipo ||
+                                          'Selecionado'}
+                                      </option>
+                                    )}
+                                    {OptinosNegocia.map((tipo) => (
+                                      <option key={String(tipo.value)} value={tipo.value}>
+                                        {tipo.label}
+                                      </option>
+                                    ))}
                                   </select>
                                 )}
                               </div>
@@ -13747,7 +14359,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                   </h1>
                                   <h1
                                     className="tarjtext"
-                                    style={{ marginRight: 22, marginTop: 10 }}
+                                    style={{ marginRight: 22}}
                                   >
                                     {' '}
                                     Valor{' '}
@@ -15682,15 +16294,17 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                 <ProgressBar className="progress" animated now={operacaoProgress} />
               )}
             </div>
-            <div className="">
-              <button
-                style={{ width: 130, marginTop: 15 }}
-                className="btn btn-primary"
-                onClick={handleCloseOperacao}
-              >
-                Ok
-              </button>
-            </div>
+            {operacaoProgress >= 100 && (
+              <div className="">
+                <button
+                  style={{ width: 130, marginTop: 15 }}
+                  className="btn btn-primary"
+                  onClick={handleCloseOperacao}
+                >
+                  Ok
+                </button>
+              </div>
+            )}
           </Modal.Body>
         </Modal>
         {/* ======================== MODAL DADOS NÃO ENCONTRADROS NO SANKHYA =========================== */}
@@ -15870,9 +16484,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                         ? 'btn btn-primary'
                         : 'btn btn-outline-primary'
                     }
-                    onClick={() => {
+                    onClick={async () => {
                       setMobileListaTab('local');
                       setPaginaList(1);
+                      await AtualizarPedidosLocaisPeloPalMPVDaApi();
+                      await GetListaCabecalho('local');
                     }}
                   >
                     Pedidos Locais
@@ -15882,6 +16498,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             ) : (
               <></>
             )}
+            {( !isMobile || (isMobile && mobileListaTab === 'api') ) ? (
             <div className="blocoLispesqPedidos">
               <div className="divradio" onClick={PesquisaTodos}>
                 <input
@@ -15923,6 +16540,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                 <p style={{ marginLeft: 8 }}>Á Enviar</p>
               </div>
             </div>
+            ) : null}
             <h1 className="h1Promotor"></h1>
             {isMobile ? <></> : <></>}
             <div className="table-responsive  tabela-responsiva-pedido-realizado">
@@ -15937,7 +16555,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                       <th style={{ textAlign: 'center' }} className="th1">
                         VALOR
                       </th>
-                      <th className="">STATUS</th>
+                      <th style={{ textAlign: 'center' }} className="">
+                        STATUS
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -16005,30 +16625,41 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                             <td style={{ textAlign: 'center' }}>
                               R$: {moeda(item?.valor)}
                             </td>
-                            <td className="th1">
-                              {item?.status == 'Enviado' ? (
-                                <>
-                                  <h2 className="textEnv2">Enviado</h2>
-                                </>
-                              ) : item?.status == 'Processar' ? (
-                                <>
-                                  <h2 className="textPend2">À Processar</h2>
-                                </>
-                              ) : item?.status == 'Rascunho' ? (
-                                <>
-                                  <h2 className="textPend3">Rascunho</h2>
-                                </>
-                              ) : item?.status == 'Não Enviado' ? (
-                                <>
-                                  <h2 className="textNEnviado2">A Enviar</h2>
-                                </>
-                              ) : (
-                                <>
-                                  <h2 className="textNEnviado2">
-                                    {item.status}
-                                  </h2>
-                                </>
-                              )}
+                            <td style={{ textAlign: 'center' }} className="th1">
+                              <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                                {item?.status == 'Enviado' ? (
+                                  <>
+                                    <h2 className="textEnv2">Enviado</h2>
+                                  </>
+                                ) : item?.status == 'Pendente' ? (
+                                  <>
+                                    <h2
+                                      className="textPendente2"
+                                      style={{ border: '2px solid red', borderRadius: 10, padding: '2px 6px' }}
+                                    >
+                                      Pendente
+                                    </h2>
+                                  </>
+                                ) : item?.status == 'Processar' ? (
+                                  <>
+                                    <h2 className="textPend2">À Processar</h2>
+                                  </>
+                                ) : item?.status == 'Rascunho' ? (
+                                  <>
+                                    <h2 className="textPend3">Rascunho</h2>
+                                  </>
+                                ) : item?.status == 'Não Enviado' ? (
+                                  <>
+                                    <h2 className="textNEnviado2">A Enviar</h2>
+                                  </>
+                                ) : (
+                                  <>
+                                    <h2 className="textNEnviado2">
+                                      {item.status}
+                                    </h2>
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -16070,137 +16701,114 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           <Modal.Header closeButton>
             <h1>PEDIDO SELECIONADO</h1>
           </Modal.Header>
-          <Modal.Body>
-            <div className="pedido-selec">
+                  <Modal.Body>
+                    {showMensageLoading ? (
+                      <div className="d-flex justify-content-center total-loading2">
+                        <div className="loadingModal">
+                          <img id="logoSankhya" src={logoAlyne} alt="" />
+                          <h1
+                            style={{
+                              marginTop: 15,
+                              fontSize: 22,
+                              fontWeight: 700,
+                              color: '#0d6efd',
+                              letterSpacing: 0.5,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Carregando dados...
+                          </h1>
+                          <h1 style={{ marginTop: 15 }}></h1>
+                          <ProgressBar className="progress" animated now={sucess} />
+                        </div>
+                      </div>
+                    ) : (
+                    <div className="pedido-selec">
               <div className="cabecalhoPesquisaPedido">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, width: '100%' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: 1, minWidth: 0, justifyContent: 'flex-start' }}>
+                    <h1 className="classBot d-flex">
+                      <h1 style={{ marginTop: 10, marginBottom: 8 }}>Status: </h1>
+                      <h1
+                        style={
+                          statusPedidoSelecionado == 'Enviado'
+                            ? { backgroundColor: '#008000', color: '#fff', marginTop: 3, marginLeft: 5, padding: '3px 8px', borderRadius: 10, textAlign: 'center', display: 'inline-flex', alignItems: 'center' }
+                            : statusPedidoSelecionado == 'Pendente'
+                            ? { backgroundColor: '#FFD54F', color: '#000', marginTop: 3, marginLeft: 5, padding: '4px 8px', borderRadius: 10, border: '2px solid red', textAlign: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }
+                            : statusPedidoSelecionado == 'Processar'
+                            ? { backgroundColor: '#FFA500', color: '#fff', marginTop: 3, marginLeft: 5, padding: '3px 8px', borderRadius: 10, textAlign: 'center', display: 'inline-flex', alignItems: 'center' }
+                            : statusPedidoSelecionado == 'Rascunho'
+                            ? { backgroundColor: '#161615', color: '#fff', marginTop: 3, marginLeft: 5, padding: '3px 8px', borderRadius: 10, textAlign: 'center', display: 'inline-flex', alignItems: 'center' }
+                            : { backgroundColor: '#b3180d', color: '#fff', marginTop: 3, marginLeft: 5, padding: '3px 8px', borderRadius: 10, textAlign: 'center', display: 'inline-flex', alignItems: 'center' }
+                        }
+                        className=""
+                        title={statusPedidoSelecionado == 'Pendente' ? 'Ao enviar o pedido, alguns itens não foram enviados (falha de conexão com a base de dados). É recomendável enviar os pedidos utilizando uma rede Wi‑Fi.' : undefined}
+                      >
+                        {statusPedidoSelecionado == 'Pendente' ? 'Pendente' : statusPedidoSelecionado == 'Não Enviado' ? 'A Enviar' : statusPedidoSelecionado == 'Processar' ? 'À Processar' : statusPedidoSelecionado}
+                      </h1>
+                    </h1>
+                    <h1 style={{ marginTop: 5, marginBottom: 8}} className="classBot ">
+                      Ped. Sankhya:{' '}
+                      <b style={numeroPedidoSankhya == '' || statusPedidoSelecionado == 'Não Enviado' || statusPedidoSelecionado == 'Processar' || numeroPedidoSankhya == numeroPedidoSelecionado ? { color: 'red' } : {}}>
+                        {numeroPedidoSankhya == '' || statusPedidoSelecionado == 'Não Enviado' || numeroPedidoSankhya == numeroPedidoSelecionado ? '0' : numeroPedidoSankhya}
+                      </b>
+                    </h1>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, justifyContent: 'flex-end', ...(isMobile ? { flex: '0 0 65%', flexWrap: 'wrap' } : { flex: 1, flexWrap: 'wrap' }) }}>
+                    {statusPedidoSelecionado != 'Processar' && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'nowrap', whiteSpace: 'nowrap', width: 'max-content', flexShrink: 0, overflow: 'visible' }}>
+                        <button
+                          className="btn btn-cancelar-pedido btn-cancelar-pedido-modal"
+                          style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2 }}
+                          onClick={async () => {
+                            if (numeroPedidoSelecionado) {
+                              await DeletePedidoSelecionado(String(numeroPedidoSelecionado));
+                              handleCloselistaPedidosSelec();
+                              try {
+                                setListaLoading(true);
+                                await GetListaCabecalho('api');
+                                await GetListaCabecalho('local');
+                                await GetListaCabecalho(mobileListaTab);
+                              } finally {
+                                setListaLoading(false);
+                              }
+                            }
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          disabled={showMensageLoading || !Array.isArray(itensPedidoSelecionadoList) || itensPedidoSelecionadoList.length === 0}
+                          className={statusPedidoSelecionado == 'Não Enviado' || statusPedidoSelecionado == 'Pendente' ? 'btn btn-primary enviar-pedido3 btn-cancelar-pedido-modal' : 'btn btn-primary enviar-pedido4 btn-cancelar-pedido-modal'}
+                          style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1 }}
+                          onClick={() => {
+                            localStorage.setItem('@Portal/PedidoEmDigitacao', 'true');
+                            try {
+                              localStorage.setItem('PedidoAbrirModalSelec', 'false');
+                            } catch {}
+                            setShowMensageLoadingDup(true);
+                            setmodalList(false);
+                            modalList = false;
+                            handleCloselistaPedidosSelec();
+                            handleCloselistaPedidos();
+                            console.log('entrou pendente 1234');
+                            EditarPedidoPendente();
+                          }}
+                        >
+                          {statusPedidoSelecionado == 'Não Enviado' || statusPedidoSelecionado == 'Pendente' || statusPedidoSelecionado == 'Rascunho' || statusPedidoSelecionado == 'Falhou' ? 'Editar' : 'Duplicar Ped.'}
+                        </button>
+                      </div>
+                    )}
+                    <PDFDownloadLink document={<PDFFile />} fileName={`nota_${numeroPedidoSelecionado}.pdf`} style={isMobile ? { flexBasis: '100%', textAlign: 'right' } : undefined}>
+                      Baixar Prévia Pedido
+                    </PDFDownloadLink>
+                  </div>
+                </div>
+              </div>
+              <div>
                 <h1 style={{ marginTop: 5 }} className="pedidoNumber">
                   Pedido Nº: {numeroPedidoSelecionado}
                 </h1>
-                <h1 className=" classBot d-flex">
-                  <h1 style={{ marginTop: 5, marginBottom: 8 }}>Status: </h1>
-                  <h1
-                    style={
-                      statusPedidoSelecionado == 'Enviado'
-                        ? {
-                            backgroundColor: '#008000',
-                            color: '#fff',
-                            marginTop: 3,
-                            marginLeft: 5,
-                            width: 80,
-                            padding: 3,
-                            borderRadius: 10,
-                            textAlign: 'center',
-                          }
-                        : statusPedidoSelecionado == 'Processar'
-                        ? {
-                            backgroundColor: '#FFA500',
-                            color: '#fff',
-                            marginTop: 3,
-                            marginLeft: 5,
-                            width: 90,
-                            padding: 3,
-                            borderRadius: 10,
-                            textAlign: 'center',
-                          }
-                        : statusPedidoSelecionado == 'Rascunho'
-                        ? {
-                            backgroundColor: '#161615',
-                            color: '#fff',
-                            marginTop: 3,
-                            marginLeft: 5,
-                            width: 94,
-                            padding: 3,
-                            borderRadius: 10,
-                            textAlign: 'center',
-                          }
-                        : {
-                            backgroundColor: '#b3180d',
-                            color: '#fff',
-                            marginTop: 3,
-                            marginLeft: 5,
-                            width: 80,
-                            padding: 3,
-                            borderRadius: 10,
-                            textAlign: 'center',
-                          }
-                    }
-                    className=""
-                  >
-                    {statusPedidoSelecionado == 'Não Enviado'
-                      ? 'A Enviar'
-                      : statusPedidoSelecionado == 'Processar'
-                      ? 'À Processar'
-                      : statusPedidoSelecionado}
-                  </h1>
-                </h1>
-                <h1
-                  style={{ marginTop: 5, marginBottom: 8 }}
-                  className="classBot "
-                >
-                  Ped. Sankhya:{' '}
-                  <b
-                    style={
-                      numeroPedidoSankhya == '' ||
-                      statusPedidoSelecionado == 'Não Enviado' ||
-                      statusPedidoSelecionado == 'Processar' ||
-                      numeroPedidoSankhya == numeroPedidoSelecionado
-                        ? { color: 'red' }
-                        : {}
-                    }
-                  >
-                    {numeroPedidoSankhya == '' ||
-                    statusPedidoSelecionado == 'Não Enviado' ||
-                    numeroPedidoSankhya == numeroPedidoSelecionado
-                      ? 'Nulo'
-                      : numeroPedidoSankhya}
-                  </b>
-                </h1>
-                <>
-                  {statusPedidoSelecionado == 'Processar' ? (
-                    <></>
-                  ) : (
-                    <>
-                      <button
-                        className={
-                          statusPedidoSelecionado == 'Não Enviado'
-                            ? 'btn btn-primary enviar-pedido3'
-                            : 'btn btn-primary enviar-pedido4'
-                        }
-                        onClick={() => {
-                          localStorage.setItem(
-                            '@Portal/PedidoEmDigitacao',
-                            'true'
-                          );
-                          try {
-                            localStorage.setItem('PedidoAbrirModalSelec', 'false');
-                          } catch {}
-                          setShowMensageLoadingDup(true);
-                          setmodalList(false);
-                          modalList = false;
-                          handleCloselistaPedidosSelec();
-                          handleCloselistaPedidos();
-                          console.log('entrou pendente 1234')
-                          EditarPedidoPendente();
-                        }}
-                      >
-                        {statusPedidoSelecionado == 'Não Enviado' ||
-                        statusPedidoSelecionado == 'Rascunho' ||
-                        statusPedidoSelecionado == 'Falhou'
-                          ? 'Editar'
-                          : 'Duplicar Ped.'}
-                      </button>
-                    </>
-                  )}
-                  {statusPedidoSelecionado == 'Não Enviado' ? <></> : <></>}
-                </>
-                <>
-                  <PDFDownloadLink
-                    document={<PDFFile />}
-                    fileName={`nota_${numeroPedidoSelecionado}.pdf`}
-                  >
-                    Baixar Prévia Pedido
-                  </PDFDownloadLink>
-                </>
               </div>
               <h1
                 style={{ marginTop: 15, marginLeft: 5 }}
@@ -16270,7 +16878,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                   </div>
                 </div>
               </div>
-            </div>
             <div className="separador"></div>
             <div className="table-responsive  tabela-responsiva-pedido-realizado">
               <div className=" table-wrap">
@@ -16332,9 +16939,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                     </tr>
                   </thead>
                   <tbody>
-                    {itensPedidoSelecionado?.length > 0 ? (
+                    {itensPaginaModal?.length > 0 ? (
                       <>
-                        {itensPedidoSelecionado?.map((item, index) => (
+                        {itensPaginaModal?.map((item, index) => (
                           <tr key={index}>
                             {isMobile ? (
                               <>
@@ -16425,7 +17032,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                           </tr>
                         ))}
                       </>
-                    ) : (
+                    ) : sucess < 100 ? (
                       <div
                         style={{ margin: 'auto' }}
                         className="alert alert-warning alerta-item"
@@ -16433,17 +17040,27 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                       >
                         Carregando dados...
                       </div>
+                    ) : (
+                      <div
+                        style={{ margin: 'auto' }}
+                        className="alert alert-warning alerta-item"
+                        role="alert"
+                      >
+                        Nenhum item encontrado.
+                      </div>
                     )}
                   </tbody>
                 </Table>
                 <Paginacao
-                  total={totalPaginasItens}
-                  limit={1}
+                  total={itensPedidoSelecionadoList?.length ?? 0}
+                  limit={qtdePaginaItens}
                   paginaAtual={paginaItens}
                   setPagina={setPaginaItens}
                 />
               </div>
             </div>
+            </div>
+                    )}
           </Modal.Body>
           <Modal.Footer>
             <button

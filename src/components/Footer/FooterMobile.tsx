@@ -223,6 +223,7 @@ interface PgamobileDB extends DBSchema {
       id: number;
       descricao: string;
       atualizadoEm: string;
+      Natureza: string;
     };
   };
   parceiro: {
@@ -1219,7 +1220,6 @@ async function popularProd(produto: iproduto[]) {
         console.log('dadostipo1', data);
         console.log('dadostipo2', result);
         popularTiponeg(result);
-        await SalvarNaturezaPadraoTipoNegociacao(codVend);
       })
       .catch((error) => {
         console.log('erro ao receber dados coordenador', error);
@@ -1778,7 +1778,6 @@ async function popularProd(produto: iproduto[]) {
         }
 
         await LoginSankhya();
-        await SalvarNaturezaPadraoTipoNegociacao(usuario.username);
         receberDadosSankhyaParceiro();
       })
       .catch((error) => {
@@ -1824,6 +1823,7 @@ async function popularProd(produto: iproduto[]) {
       .post(`/api/Sankhya/DadosDashSankhya?sql=${sqlEncoded}`)
       .then((response) => {
         const rows = response?.data?.responseBody?.rows || [];
+        try { console.log('TIPO DE NATUREZA', 'SANKHYA SQL rows', rows); } catch {}
         const data = Array.isArray(rows)
           ? rows.map((r: any) => ({
               id: Array.isArray(r) ? r[0] : r?.Id ?? r?.ID ?? r?.id,
@@ -1833,6 +1833,7 @@ async function popularProd(produto: iproduto[]) {
                 Array.isArray(r) ? r[3] : r?.NaturezaPadrao ?? null,
             }))
           : [];
+        try { console.log('TIPO DE NATUREZA', 'SANKHYA mapped', data); } catch {}
         try {
           localStorage.setItem(
             '@Portal/tipoNegociacaoNaturezaPadrao',
