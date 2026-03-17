@@ -1,6 +1,6 @@
 
-const CACHE = "pwabuilder-offline-V51";
-const CACHE_ASSETS = "pwabuilder-assets-V51";
+const CACHE = "pwabuilder-offline-V52";
+const CACHE_ASSETS = "pwabuilder-assets-V52";
 
 importScripts('https://storage.googleapis.com/workbox-cdn/releases/5.1.2/workbox-sw.js');
 

@@ -1257,6 +1257,7 @@ function PedidoVendas() {
 
   async function GetListaCabecalho(tabOverride?: 'api' | 'local') {
     window.scrollTo(0, 0);
+    setListaLoading(true);
     setItensPedidoSelecionado([]);
     itensPedidoSelecionado = [];
     console.log('entrou na busca', searchList);
@@ -1324,7 +1325,10 @@ function PedidoVendas() {
         setCabecalhoPesquisa(ordenada);
         cabecalhoPesquisa = ordenada;
         setTotalPaginasList(Math.ceil(response.data.total / qtdePaginaList));
-      } catch (error) {}
+        setListaLoading(false);
+      } catch (error) {
+        setListaLoading(false);
+      }
     } else {
       try {
         const db = await openDB<PgamobileDB>('pgamobile', versao);
@@ -1381,9 +1385,11 @@ function PedidoVendas() {
         setTotalPaginasList(Math.ceil(totais.length / qtdePaginaList));
         setCabecalhoPesquisa(paginatedData);
         cabecalhoPesquisa = paginatedData;
+        setListaLoading(false);
       } catch (error) {
         setLoading(false);
         console.log('Ocorreu um erro', error);
+        setListaLoading(false);
       }
     }
   }
@@ -6092,6 +6098,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         if (
           statusPedidoSelecionado == 'Não Enviado' ||
+          statusPedidoSelecionado == 'Pendente' ||
           statusPedidoSelecionado == 'Rascunho' ||
           statusPedidoSelecionado == 'Falhou'
         ) {
@@ -6147,6 +6154,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           }
           if (
             statusPedidoSelecionado == 'Não Enviado' ||
+            statusPedidoSelecionado == 'Pendente' ||
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
@@ -9602,6 +9610,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         GetTipNeg(Number(codCliente));
         if (
           statusPedidoSelecionado == 'Não Enviado' ||
+          statusPedidoSelecionado == 'Pendente' ||
           statusPedidoSelecionado == 'Rascunho' ||
           statusPedidoSelecionado == 'Falhou'
         ) {
@@ -9673,6 +9682,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             GetTipNeg(Number(codCliente));
             if (
               statusPedidoSelecionado == 'Não Enviado' ||
+              statusPedidoSelecionado == 'Pendente' ||
               statusPedidoSelecionado == 'Rascunho' ||
               statusPedidoSelecionado == 'Falhou'
             ) {
@@ -9871,6 +9881,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           );
           if (
             statusPedidoSelecionado == 'Não Enviado' ||
+            statusPedidoSelecionado == 'Pendente' ||
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
@@ -9894,6 +9905,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     
     try {
       console.log('entrou pendente 03')
+      const editAllowed =
+        statusPedidoSelecionado == 'Não Enviado' ||
+        statusPedidoSelecionado == 'Pendente' ||
+        statusPedidoSelecionado == 'Rascunho' ||
+        statusPedidoSelecionado == 'Falhou';
       const clienteIdLS = JSON.parse(
         localStorage.getItem('ClienteEscolhido') || '0'
       );
@@ -9921,17 +9937,25 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         setObservacao(obsLS);
         observacao = obsLS;
       }
-      if (palmpvLS) {
-        setnumPedido(palmpvLS);
-        numPedido = palmpvLS;
-      }
-      if (!idPedidoSelecionado || idPedidoSelecionado == 0) {
-        setIdPedidoSelecionado(pedidoIdLS);
-        idPedidoSelecionado = pedidoIdLS;
-      }
-      if (!palMPVEscolhido || palMPVEscolhido == '') {
-        setpalMPVEscolhido(palmpvLS);
-        palMPVEscolhido = palmpvLS;
+      if (editAllowed) {
+        if (palmpvLS) {
+          setnumPedido(palmpvLS);
+          numPedido = palmpvLS;
+        }
+        if (!idPedidoSelecionado || idPedidoSelecionado == 0) {
+          setIdPedidoSelecionado(pedidoIdLS);
+          idPedidoSelecionado = pedidoIdLS;
+        }
+        if (!palMPVEscolhido || palMPVEscolhido == '') {
+          setpalMPVEscolhido(palmpvLS);
+          palMPVEscolhido = palmpvLS;
+        }
+      } else {
+        // Duplicação: não levar ID nem PALMPV
+        setIdPedidoSelecionado(0);
+        idPedidoSelecionado = 0;
+        setpalMPVEscolhido('');
+        palMPVEscolhido = '';
       }
       if (tipoNegLS > 0) {
         setTipoNegociacaoPedidoSelecionadoId(tipoNegLS);
@@ -9988,13 +10012,23 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         const obsLS = String(localStorage.getItem('PedidoInfoObservacao') || '');
         const palmpvLS = String(localStorage.getItem('PedidoSelecionadoPALMPV') || '');
         const filialLS = String(localStorage.getItem('PedidoInfoFilial') || '');
+        const editAllowed =
+          statusPedidoSelecionado == 'Não Enviado' ||
+          statusPedidoSelecionado == 'Pendente' ||
+          statusPedidoSelecionado == 'Rascunho' ||
+          statusPedidoSelecionado == 'Falhou';
         if (obsLS) {
           setObservacao(obsLS);
           observacao = obsLS;
         }
         if (palmpvLS) {
-          setnumPedido(palmpvLS);
-          numPedido = palmpvLS;
+          if (editAllowed) {
+            setnumPedido(palmpvLS);
+            numPedido = palmpvLS;
+          } else {
+            setnumPedido(usuario.username + dataFormarPedido);
+            numPedido = usuario.username + dataFormarPedido;
+          }
         } else if (dataFormarPedido) {
           setnumPedido(usuario.username + dataFormarPedido);
           numPedido = usuario.username + dataFormarPedido;
@@ -10184,6 +10218,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           );
           if (
             statusPedidoSelecionado == 'Não Enviado' ||
+            statusPedidoSelecionado == 'Pendente' ||
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
@@ -10215,6 +10250,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           GetTipNeg(Number(codCliente));
           if (
             statusPedidoSelecionado == 'Não Enviado' ||
+            statusPedidoSelecionado == 'Pendente' ||
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
@@ -10276,6 +10312,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             GetTipNeg(Number(codCliente));
             if (
               statusPedidoSelecionado == 'Não Enviado' ||
+              statusPedidoSelecionado == 'Pendente' ||
               statusPedidoSelecionado == 'Rascunho' ||
               statusPedidoSelecionado == 'Falhou'
             ) {
@@ -10379,6 +10416,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             );
             if (
               statusPedidoSelecionado == 'Não Enviado' ||
+              statusPedidoSelecionado == 'Pendente' ||
               statusPedidoSelecionado == 'Rascunho' ||
               statusPedidoSelecionado == 'Falhou'
             ) {
@@ -10401,6 +10439,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           GetTipNeg(Number(codCliente));
           if (
             statusPedidoSelecionado == 'Não Enviado' ||
+            statusPedidoSelecionado == 'Pendente' ||
             statusPedidoSelecionado == 'Rascunho' ||
             statusPedidoSelecionado == 'Falhou'
           ) {
@@ -10459,7 +10498,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       .get(`/api/CabecalhoPedidoVenda/${idPedidoSelecionado}`)
       .then((response) => {
         console.log('pedido de venda a editar', response.data);
-        if (statusPedidoSelecionado == 'Não Enviado') {
+        if (statusPedidoSelecionado == 'Não Enviado' || statusPedidoSelecionado == 'Pendente') {
           setCabecalhoId(response.data?.id);
           cabecalgoId = response.data?.id;
           setnumPedido(response.data.palMPV);
@@ -10492,7 +10531,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         GetTabelaPreco();
         setPesquisaPedido(false);
         pesquisaPedido = false;
-        if (statusPedidoSelecionado == 'Não Enviado') {
+        if (statusPedidoSelecionado == 'Não Enviado' || statusPedidoSelecionado == 'Pendente') {
           GetItensPedidoEdit();
         } else {
           GetItensPedidoEditDuplicate();

@@ -1515,12 +1515,8 @@ const NavbarDashHeader = () => {
               <></>
             )}
             {(() => {
-              const text = !isOnline
-                ? 'Offline'
-                : isApiDown
-                ? 'API Offline'
-                : 'Online';
-              const cls = isOnline && !isApiDown ? 'divOline' : 'divOffline';
+              const text = isOnline ? 'Online' : 'Offline';
+              const cls = isOnline ? 'divOline' : 'divOffline';
               return (
                 <div
                   className={cls}
