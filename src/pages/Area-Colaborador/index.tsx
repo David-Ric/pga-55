@@ -195,6 +195,7 @@ export default function AreaColaborador() {
   const [listaPendEnvio, setListaPendEnvio] = useState<any[]>([]);
   const [pendentesCount, setPendentesCount] = useState(0);
   const [naoEnviadosCount, setNaoEnviadosCount] = useState(0);
+  const [processarAtrasadosCount, setProcessarAtrasadosCount] = useState(0);
   let [paginaPendEnvio, setPaginaPendEnvio] = useState(1);
   const [loadingListaPendEnvio, setLoadingListaPendEnvio] = useState(false);
   let [totalPaginasPendEnvio, setTotalPaginasPendEnvio] = useState(0);
@@ -208,6 +209,8 @@ export default function AreaColaborador() {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [showVisualizarPend, setShowVisualizarPend] = useState(false);
   const [pedidoVisualizar, setPedidoVisualizar] = useState<any | null>(null);
+  const [similaresEnviados, setSimilaresEnviados] = useState<{ [palmpv: string]: any }>({});
+  const [visualizarSomente, setVisualizarSomente] = useState(false);
   const [enviarLoading, setEnviarLoading] = useState(false);
   const [itensVisualizar, setItensVisualizar] = useState<any[]>([]);
   const [empresaDesc, setEmpresaDesc] = useState<string>('');
@@ -443,6 +446,29 @@ export default function AreaColaborador() {
     return '';
   }
 
+  function parseCabecalhoDataMs(v: any) {
+    const s = String(v || '').trim();
+    if (!s) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/.exec(
+      s
+    );
+    if (!m) {
+      const d = new Date(s);
+      const ms = d.getTime();
+      return Number.isNaN(ms) ? null : ms;
+    }
+    const yyyy = Number(m[1]);
+    const mm = Number(m[2]);
+    const dd = Number(m[3]);
+    const hh = Number(m[4]);
+    const mi = Number(m[5]);
+    const ss = Number(m[6]);
+    const frac = String(m[7] || '');
+    const ms = frac ? Number(frac.slice(0, 3).padEnd(3, '0')) : 0;
+    const t = new Date(yyyy, mm - 1, dd, hh, mi, ss, ms).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+
   async function VerificarPedidosPendentes() {
     try {
       const usuarioLocal: iDadosUsuario = JSON.parse(
@@ -485,6 +511,7 @@ export default function AreaColaborador() {
       setShowListaPendEnvio(true);
       console.log('setShowListaPendEnvio')
       setLoadingListaPendEnvio(true);
+      setProcessarAtrasadosCount(0);
       const usuarioLocal: iDadosUsuario = JSON.parse(
         localStorage.getItem('@Portal/usuario') || '{}'
       );
@@ -505,20 +532,46 @@ export default function AreaColaborador() {
         }
         pagina += 1;
       }
+      const cutoffMs = Date.now() - 60 * 60 * 1000;
+      const isProcessarAtrasado = (x: any) => {
+        const st = String(x?.status || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+        if (st !== 'processar') return false;
+        const ms = parseCabecalhoDataMs(x?.data);
+        if (ms == null) return false;
+        return ms <= cutoffMs;
+      };
       const itensPendentesOuNaoEnviados =
         acumulados.filter((x: any) => {
           const st = normalizarStatusPedido(x?.status);
-          return st === 'pendente' || st === 'nao_enviado';
+          if (st === 'pendente' || st === 'nao_enviado') return true;
+          return isProcessarAtrasado(x);
         }) || [];
+      setProcessarAtrasadosCount(
+        itensPendentesOuNaoEnviados.filter(isProcessarAtrasado).length
+      );
       itensPendentesOuNaoEnviados.sort((a: any, b: any) => {
         const sa = normalizarStatusPedido(a?.status);
         const sb = normalizarStatusPedido(b?.status);
-        const wa = sa === 'pendente' ? 0 : 1;
-        const wb = sb === 'pendente' ? 0 : 1;
+        const wa = isProcessarAtrasado(a)
+          ? 0
+          : sa === 'pendente'
+            ? 1
+            : 2;
+        const wb = isProcessarAtrasado(b)
+          ? 0
+          : sb === 'pendente'
+            ? 1
+            : 2;
         if (wa !== wb) return wa - wb;
-        const da = new Date(String(a?.data || ''));
-        const db = new Date(String(b?.data || ''));
-        return db.getTime() - da.getTime();
+        const da = parseCabecalhoDataMs(a?.data);
+        const db = parseCabecalhoDataMs(b?.data);
+        const ma = da == null ? 0 : da;
+        const mb = db == null ? 0 : db;
+        return mb - ma;
       });
       const totalPagesFront = Math.max(
         1,
@@ -533,6 +586,53 @@ export default function AreaColaborador() {
       const endIndex = startIndex + pageSizeFrontPendEnvio;
       const paginated = itensPendentesOuNaoEnviados.slice(startIndex, endIndex);
       setListaPendEnvio(paginated);
+      try {
+        const toCents = (v: any) => {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return null;
+          return Math.round(n * 100);
+        };
+        const isEnviado = (st: any) => {
+          const norm = String(st || '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+          return norm === 'enviado' || norm === 'processar';
+        };
+        const indexEnviados = new Map<string, any>();
+        for (const cab of acumulados) {
+          if (!isEnviado(cab?.status)) continue;
+          const parceiroId = Number(cab?.parceiroId);
+          const valorCents = toCents(cab?.valor);
+          if (!Number.isFinite(parceiroId) || valorCents === null) continue;
+          const key = `${parceiroId}|${valorCents}`;
+          const prev = indexEnviados.get(key);
+          if (!prev) {
+            indexEnviados.set(key, cab);
+            continue;
+          }
+          const dPrev = new Date(String(prev?.data || '')).getTime();
+          const dCurr = new Date(String(cab?.data || '')).getTime();
+          if (!Number.isFinite(dPrev) || dCurr > dPrev) {
+            indexEnviados.set(key, cab);
+          }
+        }
+        const similares: { [palmpv: string]: any } = {};
+        for (const cab of paginated) {
+          const parceiroId = Number(cab?.parceiroId);
+          const valorCents = toCents(cab?.valor);
+          if (!Number.isFinite(parceiroId) || valorCents === null) continue;
+          const key = `${parceiroId}|${valorCents}`;
+          const achado = indexEnviados.get(key);
+          if (achado) {
+            similares[String(cab?.palMPV ?? cab?.id ?? '')] = achado;
+          }
+        }
+        setSimilaresEnviados(similares);
+      } catch {
+        setSimilaresEnviados({});
+      }
       setTotalPaginasPendEnvio(itensPendentesOuNaoEnviados.length);
       try {
         const ids = Array.from(
@@ -3643,6 +3743,12 @@ ORDER BY 1,3`;
                 <h1>LISTA DE PEDIDOS PENDENTES / NÃO ENVIADOS</h1>
               </Modal.Header>
               <Modal.Body>
+                {processarAtrasadosCount > 0 ? (
+                  <div className="alert alert-danger" role="alert">
+                    Existem {processarAtrasadosCount} pedidos em processamento a
+                    mais de 1 hora
+                  </div>
+                ) : null}
                 <div className="table-responsive  tabela-responsiva-pedido-realizado">
                   <div className=" table-wrap">
                     <Table responsive className="table-global table  main-table">
@@ -3711,8 +3817,11 @@ ORDER BY 1,3`;
                                   R$: {moeda(item?.valor)}
                                 </td>
                                 <td className="th1">
-                                  {normalizarStatusPedido(item?.status) ===
-                                  'pendente' ? (
+                                  {String(item?.status).trim() ===
+                                  'Processar' ? (
+                                    <h2 className="textPend2">À Processar</h2>
+                                  ) : normalizarStatusPedido(item?.status) ===
+                                    'pendente' ? (
                                     <h2 className="textPendente2">Pendente</h2>
                                   ) : (
                                     <h2 className="textNEnviado2">Não Enviado</h2>
@@ -3725,13 +3834,43 @@ ORDER BY 1,3`;
                                     style={{
                                       marginTop: 8,
                                       display: 'flex',
-                                      justifyContent: 'flex-end',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
                                       width: '100%',
                                     }}
                                   >
+                                    {!!similaresEnviados[String(item?.palMPV ?? item?.id ?? '')] ? (
+                                      <button
+                                        type="button"
+                                        style={{
+                                          backgroundColor: 'transparent',
+                                          border: '1px solid #dc3545',
+                                          color: '#dc3545',
+                                          borderRadius: 12,
+                                          padding: '4px 10px',
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                        onClick={() => {
+                                          const enviado =
+                                            similaresEnviados[String(item?.palMPV ?? item?.id ?? '')];
+                                          if (enviado) {
+                                            setVisualizarSomente(true);
+                                            setPedidoVisualizar(enviado);
+                                            setShowVisualizarPend(true);
+                                          }
+                                        }}
+                                      >
+                                        Existem pedidos similares ja enviados!
+                                      </button>
+                                    ) : (
+                                      <div />
+                                    )}
                                     <button
                                       className="btn btn-primary"
                                       onClick={() => {
+                                        setVisualizarSomente(false);
                                         setPedidoVisualizar(item);
                                         setShowVisualizarPend(true);
                                       }}
@@ -3845,25 +3984,44 @@ ORDER BY 1,3`;
                     </div>
                   </Modal.Body>
                 </Modal>
-                <Modal show={showVisualizarPend} onHide={() => setShowVisualizarPend(false)} backdrop="static" size="xl">
+                <Modal
+                  show={showVisualizarPend}
+                  onHide={() => {
+                    setShowVisualizarPend(false);
+                    setVisualizarSomente(false);
+                  }}
+                  backdrop="static"
+                  size="xl"
+                >
                   <Modal.Header closeButton>
-                    <h1>LISTA DE PEDIDO À ENVIAR</h1>
+                    <h1>
+                      {visualizarSomente ||
+                      String(pedidoVisualizar?.status).trim().toLowerCase() === 'enviado'
+                        ? 'DETALHES DO PEDIDO ENVIADO'
+                        : 'LISTA DE PEDIDO À ENVIAR'}
+                    </h1>
                   </Modal.Header>
                   <Modal.Body>
                     <div className="pedido-selec" style={{ width: '100%', margin: '0 auto' }}>
+                      {(() => {
+                        const st = String(pedidoVisualizar?.status || '').trim().toLowerCase();
+                        const bloqueado = visualizarSomente || st === 'enviado';
+                        return (
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                        <button
-                          className="btn btn-danger"
-                          onClick={() => {
-                            setPalmpvToCancel(String(pedidoVisualizar?.palMPV ?? ''));
-                            setShowConfirmCancel(true);
-                          }}
-                          disabled={enviarLoading}
-                        >
-                          Cancelar Pedido
-                        </button>
-                          {normalizarStatusPedido(pedidoVisualizar?.status) !==
-                            'pendente' && (
+                        {!bloqueado && (
+                          <button
+                            className="btn btn-danger"
+                            onClick={() => {
+                              setPalmpvToCancel(String(pedidoVisualizar?.palMPV ?? ''));
+                              setShowConfirmCancel(true);
+                            }}
+                            disabled={enviarLoading}
+                          >
+                            Cancelar Pedido
+                          </button>
+                        )}
+                          {!bloqueado &&
+                            normalizarStatusPedido(pedidoVisualizar?.status) !== 'pendente' && (
                             <button
                               className="btn btn-dark"
                               onClick={async () => {
@@ -3943,6 +4101,8 @@ ORDER BY 1,3`;
                             </button>
                           )}
                       </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 6 }}>
                         <h1 style={{ marginTop: 5, marginBottom: 8 }}>Status: </h1>
                         {String(pedidoVisualizar?.status).trim() === 'Enviado' ? (

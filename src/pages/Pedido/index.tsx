@@ -771,27 +771,13 @@ function PedidoVendas() {
   const [mostrarTelaPedidoPrincipal, setMostrarTelaPedidoPrincipal] = useState(false);
 
   
-
-  useEffect(() => {
-    if (isMobile && showlistaPedidos) {
-      setPaginaList(1);
-      (async () => {
-        setListaLoading(true);
-        try {
-          await GetListaCabecalho();
-        } finally {
-          setListaLoading(false);
-        }
-      })();
-    }
-  }, [mobileListaTab]);
-
   function handleCloselistaPedidosSelec() {
     setmodalList(false);
     modalList = false;
     setShowlistaPedidosSelec(false);
     try {
       localStorage.setItem('PedidoAbrirModalSelec', 'false');
+      localStorage.removeItem('PedidoSelecionadoOrigem');
     } catch {}
   }
   async function GetitensPedidoVendaIdListaApiPorId(pedidoId: number) {
@@ -1246,8 +1232,10 @@ function PedidoVendas() {
   function OpemModal() {
     window.scrollTo(0, 0);
     if (isMobile) {
-      setMobileListaTab('api');
+      setMobileListaTab(isOnline ? 'api' : 'local');
     }
+    setPaginaList(1);
+    paginaList = 1;
     PesquisaTodos();
     setShowlistaPedidos(true);
   }
@@ -1263,15 +1251,32 @@ function PedidoVendas() {
     console.log('entrou na busca', searchList);
     setCabecalhoPesquisa([]);
     cabecalhoPesquisa = [];
-    const tabAtual = isMobile ? (tabOverride ?? mobileListaTab) : 'api';
+    const tabAtual = isMobile
+      ? (tabOverride ?? (isOnline ? 'api' : 'local'))
+      : 'api';
     if (tabAtual === 'api') {
       try {
         const response = await api.get(
           `/api/CabecalhoPedidoVenda/filter/status?pagina=${paginaList}&totalpagina=${qtdePaginaList}&codVendedor=${usuario.username}&codParceiro=${parceiroId || ''}&status=${searchList}`
         );
         console.log('Lista de pedidos', response.data);
-        const listaPedidos: ICabecalho2[] = response.data.data;
+        const listaPedidos: ICabecalho2[] = Array.isArray(response?.data?.data)
+          ? response.data.data
+          : [];
+        let listaPreferida: ICabecalho2[] = listaPedidos;
         try {
+          const normalizeStatus = (v: any) =>
+            String(v || '')
+              .trim()
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '');
+          const statusBusca = normalizeStatus(searchList);
+          const preferirLocal =
+            statusBusca === 'todos' ||
+            statusBusca === 'pendente' ||
+            statusBusca === 'nao enviado';
+
           const db = await openDB<PgamobileDB>('pgamobile', versao);
           const txCab = db.transaction('cabecalhoPedidoVenda', 'readwrite');
           const storeCab = txCab.objectStore('cabecalhoPedidoVenda');
@@ -1280,6 +1285,33 @@ function PedidoVendas() {
           for (const it of listaPedidos) {
             porPal.set(String(it.palMPV || ''), it);
           }
+          if (preferirLocal) {
+            const vendedorId = Number(usuario.username);
+            const parceiroFiltroAtivo = Number(parceiroId) > 0;
+            for (const cabLocal of todosCab as any[]) {
+              const pal = String(cabLocal?.palMPV || '');
+              if (!pal) continue;
+              if (!porPal.has(pal)) continue;
+              const statusAtual = normalizeStatus(porPal.get(pal)?.status);
+              if (statusAtual === 'processar' || statusAtual === 'enviado') continue;
+              if (Number(cabLocal?.vendedorId) !== vendedorId) continue;
+              if (String(cabLocal?.ativo || '') === 'N') continue;
+              if (String(cabLocal?.sincronizado || '') !== 'N') continue;
+              if (
+                parceiroFiltroAtivo &&
+                Number(cabLocal?.parceiroId) !== Number(parceiroId)
+              ) {
+                continue;
+              }
+              const stLocal = normalizeStatus(cabLocal?.status);
+              const statusLocalOk =
+                stLocal === 'pendente' || stLocal === 'nao enviado';
+              if (!statusLocalOk) continue;
+              if (statusBusca !== 'todos' && stLocal !== statusBusca) continue;
+              porPal.set(pal, cabLocal);
+            }
+          }
+          listaPreferida = Array.from(porPal.values());
           for (const cabLocal of todosCab as any[]) {
             const pal = String(cabLocal?.palMPV || '');
             const api = porPal.get(pal);
@@ -1312,15 +1344,19 @@ function PedidoVendas() {
           }
           await txItem.done;
         } catch {}
-        const novaLista = [...cabecalhoRasc, ...response.data.data];
+        const novaLista = [...cabecalhoRasc, ...listaPreferida];
         console.log();
-        const itensUnicos: ICabecalho2[] = response.data.data.filter(
+        const itensUnicos: ICabecalho2[] = listaPreferida.filter(
           (item: ICabecalho2, index: number, self: ICabecalho2[]) => {
             return self.findIndex((t) => t.palMPV === item.palMPV) === index;
           }
         );
-        const pendentesPrimeiro = response.data.data.filter((it: any) => String(it?.status || '').trim() === 'Pendente');
-        const demais = response.data.data.filter((it: any) => String(it?.status || '').trim() !== 'Pendente');
+        const pendentesPrimeiro = listaPreferida.filter(
+          (it: any) => String(it?.status || '').trim() === 'Pendente'
+        );
+        const demais = listaPreferida.filter(
+          (it: any) => String(it?.status || '').trim() !== 'Pendente'
+        );
         const ordenada = [...pendentesPrimeiro, ...demais];
         setCabecalhoPesquisa(ordenada);
         cabecalhoPesquisa = ordenada;
@@ -1438,10 +1474,7 @@ function PedidoVendas() {
         let mudou = false;
         let novoId: number | null = null;
 
-        if (statusLocal === 'Não Enviado') {
-          pedidoLocal.status = 'Pendente';
-          mudou = true;
-        } else if (
+        if (
           statusLocal === 'Pendente' &&
           (statusApi === 'Processar' || statusApi === 'Enviado')
         ) {
@@ -1478,11 +1511,11 @@ function PedidoVendas() {
     (async () => {
       if (showlistaPedidos && isMobile) {
         setListaLoading(true);
-        const currentTab = mobileListaTab;
         try {
-          await GetListaCabecalho('api');
-          await GetListaCabecalho('local');
-          await GetListaCabecalho(currentTab);
+          if (isOnline) {
+            await AtualizarPedidosLocaisPeloPalMPVDaApi();
+          }
+          await GetListaCabecalho();
         } finally {
           setListaLoading(false);
         }
@@ -4955,27 +4988,39 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             setDescTipo(tiponegociacaoData.descricao);
             descTipo = tiponegociacaoData.descricao;
           } else {
-            setDescTipo('Não possui tipo de negociação');
-            descTipo = 'Não possui tipo de negociação';
+            const descParceiro = String((clienteData as any)?.descTipoNegociacao || '').trim();
+            if (descParceiro) {
+              setDescTipo(descParceiro);
+              descTipo = descParceiro;
+            } else {
+              setDescTipo('Não possui tipo de negociação');
+              descTipo = 'Não possui tipo de negociação';
+            }
           }
           try {
-            const tiposAll = await tipoNegociacaoStore.getAll();
-            const allOptions: iDataSelect[] = (tiposAll || []).map((tn: any) => ({
-              value: String(tn.id),
-              label: tn.descricao,
-            }));
-            const extras: iDataSelect[] = [{ value: '1', label: 'À VISTA' }];
+            const descParceiro = String((clienteData as any)?.descTipoNegociacao || '').trim();
+            const options: iDataSelect[] = [
+              {
+                value: String(clienteData.tipoNegociacao),
+                label: String(descParceiro || tiponegociacaoData?.descricao || ''),
+              },
+              { value: '1', label: 'À VISTA' },
+            ];
             const dedup = new Map<string, iDataSelect>();
-            [...allOptions, ...extras].forEach((opt) => {
+            options.forEach((opt) => {
               const key = String(opt.value || '').trim();
-              if (key && !dedup.has(key)) dedup.set(key, opt);
+              if (key && key !== '0' && !dedup.has(key)) dedup.set(key, opt);
             });
             const uniq = Array.from(dedup.values());
             setOptinosNegocia(uniq);
             OptinosNegocia = uniq;
           } catch {}
 
-          if (clienteData.tipoNegociacao && String(clienteData.tipoNegociacao) !== '0') {
+          if (
+            !condPagtoManual &&
+            clienteData.tipoNegociacao &&
+            String(clienteData.tipoNegociacao) !== '0'
+          ) {
             setTipoNegocia(String(clienteData.tipoNegociacao));
             tipoNegocia = String(clienteData.tipoNegociacao);
           }
@@ -5638,6 +5683,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   //================GET TABELAPREÇO PARCEIRO INDEXEDDB ===========================
   async function GetTabelaPreco() {
     if (isMobile) {
+      if (isOnline) {
+        await GetTabelaPrecobanconuvem();
+        return;
+      }
       console.log(
         'entrou na tabela de preço parceiro banco local...................................'
       );
@@ -5659,7 +5708,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         });
         setDadosTabelaParceiro(tabelaFiltrada);
         if (!tabelaFiltrada.length) {
-          await GetTabelaPrecobanconuvem();
+          setCodTabela('');
+          codTabela = '';
+          setDescTabelaPreco('');
+          descTabelaPreco = '';
+          setItensTabela([]);
+          itensTabela = [];
+          setTotalPaginas(0);
+          totalPaginas = 0;
           return;
         }
         setCodTabela(String(tabelaFiltrada[0]?.tabelaPrecoId));
@@ -5704,6 +5760,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     }
   }
 
+  async function applyEmpresaSelection(empresaId: string) {
+    setCodEmpresa(String(empresaId || ''));
+    codEmpresa = String(empresaId || '');
+    setPagina(1);
+    pagina = 1;
+    await GetTabelaPreco();
+  }
+
   async function GetTabelaPrecobanconuvem() {
     console.log('codCliente', codCliente);
     console.log('codEmpresa', codEmpresa);
@@ -5730,7 +5794,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
   async function GetiTensTabelaPreco() {
     console.log('Código da tabela de preço bd:', codTabela);
-    if (isMobile) {
+    if (isMobile && !isOnline) {
       try {
         const db = await openDB<PgamobileDB>('pgamobile', versao);
         const itemTabelaTransaction = db.transaction(
@@ -5754,7 +5818,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         console.log('itens filtrados tabelaitens', itensFiltrados);
 
-        const itensTabelaPreco: IItemTabelaPreco[] = (await Promise.all(
+        const itensTabelaPrecoRaw = await Promise.all(
           itensFiltrados.map(async (item) => {
             const produtos = await produtoStore.get(item.idProd);
             if (produtos) {
@@ -5787,7 +5851,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
               return null;
             }
           })
-        )) as IItemTabelaPreco[];
+        );
+        const itensTabelaPreco = (itensTabelaPrecoRaw as any[]).filter(
+          Boolean
+        ) as IItemTabelaPreco[];
 
         itensTabelaPreco.sort((a, b) => {
           const nomeA = a.produtos.nome.toLowerCase() || '';
@@ -5817,9 +5884,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         console.log('Itens tabela preço adicional:', itensTabelaAdicional);
 
-        const itensTabelaAdicionalMapped: IItemTabelaPreco[] =
-          (await Promise.all(
-            itensTabelaAdicional.map(async (item) => {
+        const itensTabelaAdicionalMappedRaw = await Promise.all(
+          itensTabelaAdicional.map(async (item) => {
               console.log('Tentando buscar produtos para idProd:', item.idProd);
               const produtos = await produtoStore.get(item.idProd);
               console.log('Produtos encontrados:', produtos);
@@ -5850,13 +5916,16 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                 return null;
               }
             })
-          )) as IItemTabelaPreco[];
+        );
+        const itensTabelaAdicionalMapped = (itensTabelaAdicionalMappedRaw as any[]).filter(
+          Boolean
+        ) as IItemTabelaPreco[];
         console.log('itens adicinais', itensTabelaAdicionalMapped);
         itensTabelaPreco.push(...itensTabelaAdicionalMapped);
         console.log('quant Itens tabela preço:', itensTabelaPreco.length);
 
-        setTotalPaginas(Math.ceil(itensTabelaPreco.length / 5));
-        totalPaginas = Math.ceil(itensTabelaPreco.length / 5);
+        setTotalPaginas(Math.ceil(itensTabelaPreco.length / qtdePagina));
+        totalPaginas = Math.ceil(itensTabelaPreco.length / qtdePagina);
         console.log('total paginas:', totalPaginas);
         console.log('Itens tabela preço:', itensTabelaPreco);
 
@@ -5873,12 +5942,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         itensTabelaTotal = combinedIds;
         GetGrupos();
-        setItensTabela(
-          itensTabelaPreco.slice(
-            (pagina - 1) * qtdePagina,
-            pagina * qtdePagina
-          ) || []
+        const pageItens = itensTabelaPreco.slice(
+          (pagina - 1) * qtdePagina,
+          pagina * qtdePagina
         );
+        setItensTabela(pageItens || []);
+        itensTabela = pageItens || [];
       } catch (error) {
         console.error(
           'Erro ao obter os valores da tabela ItemTabelaPreco:',
@@ -5946,7 +6015,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       'Cliente',
       codCliente
     );
-    if (isMobile) {
+    if (isMobile && !isOnline) {
       try {
         const db = await openDB<PgamobileDB>('pgamobile', versao);
         const itemTabelaTransaction = db.transaction(
@@ -5970,7 +6039,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         console.log('itens filtrados tabelaitens', itensFiltrados);
 
-        const itensTabelaPreco: IItemTabelaPreco[] = (await Promise.all(
+        const itensTabelaPrecoRaw = await Promise.all(
           itensFiltrados.map(async (item) => {
             const produtos = await produtoStore.get(item.idProd);
             if (produtos) {
@@ -6003,7 +6072,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
               return null;
             }
           })
-        )) as IItemTabelaPreco[];
+        );
+        const itensTabelaPreco = (itensTabelaPrecoRaw as any[]).filter(
+          Boolean
+        ) as IItemTabelaPreco[];
 
         itensTabelaPreco.sort((a, b) => {
           const nomeA = a.produtos.nome.toLowerCase() || '';
@@ -6033,9 +6105,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
         console.log('Itens tabela preço adicional:', itensTabelaAdicional);
 
-        const itensTabelaAdicionalMapped: IItemTabelaPreco[] =
-          (await Promise.all(
-            itensTabelaAdicional.map(async (item) => {
+        const itensTabelaAdicionalMappedRaw = await Promise.all(
+          itensTabelaAdicional.map(async (item) => {
               console.log('Tentando buscar produtos para idProd:', item.idProd);
               const produtos = await produtoStore.get(item.idProd);
               console.log('Produtos encontrados:', produtos);
@@ -6065,7 +6136,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                 return null;
               }
             })
-          )) as IItemTabelaPreco[];
+        );
+        const itensTabelaAdicionalMapped = (itensTabelaAdicionalMappedRaw as any[]).filter(
+          Boolean
+        ) as IItemTabelaPreco[];
         console.log('itens adicinais', itensTabelaAdicionalMapped);
         itensTabelaPreco.push(...itensTabelaAdicionalMapped);
         console.log('quant Itens tabela preço:', itensTabelaPreco.length);
@@ -6198,7 +6272,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   }
 
   async function GetiTensTabelaPrecofilterNome() {
-    if (isMobile) {
+    if (isMobile && !isOnline) {
       if (pesquisaNome) {
         console.log('entrou na pesquisa por nome');
         try {
@@ -7626,7 +7700,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         } else {
           setMsgErro2('Nem todos os itens foram salvos. Pedido marcado como Pendente.');
         }
-        await SalvarCabecalhoPendente();
+        await SalvarCabecalhoPendente(true);
         return;
       }
       popularItem(arrayPedido, 'N');
@@ -7650,7 +7724,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       if (totalSalvos !== totalEnviado) {
         setAlertErroMensage2(true);
         setMsgErro2('Nem todos os itens foram salvos. Pedido marcado como Pendente.');
-        await SalvarCabecalhoPendente();
+        await SalvarCabecalhoPendente(true);
         return;
       }
       setAlertErroMensage2(false);
@@ -7806,8 +7880,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       });
   }
 
-  async function SalvarCabecalhoPendente() {
-    localStorage.removeItem('@Portal/PedidoEmDigitacao');
+  async function SalvarCabecalhoPendente(preservarDigitacao = false) {
+    if (!preservarDigitacao) {
+      localStorage.removeItem('@Portal/PedidoEmDigitacao');
+    } else {
+      localStorage.setItem('@Portal/PedidoEmDigitacao', 'true');
+    }
     var data = new Date();
     var dia = String(data.getDate()).padStart(2, '0');
     var mes = String(data.getMonth() + 1).padStart(2, '0');
@@ -7860,8 +7938,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         try {
           popularCabecalho(cabecalho, 'N');
         } catch {}
-        localStorage.removeItem('@Portal/itensPedido');
-        localStorage.removeItem('@Portal/cabecalhoPedido');
+        if (!preservarDigitacao) {
+          localStorage.removeItem('@Portal/itensPedido');
+          localStorage.removeItem('@Portal/cabecalhoPedido');
+        }
       })
       .catch((error) => {
         try {
@@ -7997,7 +8077,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   //=========== FUNÇÃO PARA SALVAR PEDIDO COMO NÃO ENVIADO ==================================
 
   async function SalvarDados(event: any) {
-    localStorage.removeItem('@Portal/PedidoEmDigitacao');
     event.preventDefault();
     setsalvo(false);
     if (nomeProduto !== '') {
@@ -8081,7 +8160,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           setMsgErro2(
             `Nem todos os itens foram salvos.\nItens enviados: ${totalEsperado}\nItens salvos: ${totalSalvos}\nCabeçalho será marcado como Pendente.`
           );
-          await SalvarCabecalhoPendente();
+          await SalvarCabecalhoPendente(true);
           setOperacaoMsg(
             [
               'Falha ao salvar todos os itens.',
@@ -8125,6 +8204,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         await popularItem(arrayPedido, 'N');
         setOperacaoMsg('Pedido salvo com sucesso!');
         setOperacaoProgress(100);
+        localStorage.removeItem('@Portal/PedidoEmDigitacao');
+        localStorage.removeItem('@Portal/itensPedido');
+        localStorage.removeItem('@Portal/cabecalhoPedido');
         if (respCab?.status === 200) {
           setOperacaoProgress(100);
         }
@@ -9900,7 +9982,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
 
   //=============================================================================
 
-  function EditarPedidoPendente() {
+  async function EditarPedidoPendente() {
     window.scrollTo(0, 0);
     
     try {
@@ -9927,16 +10009,59 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         localStorage.getItem('PedidoInfoTipoNegociacaoId') || '0'
       );
       const obsLS = String(localStorage.getItem('PedidoInfoObservacao') || '');
-      setCodCliente(String(clienteIdLS));
-      codCliente = String(clienteIdLS);
-      setParceiroPedidoSelecionado(clienteNomeLS);
+      const clienteIdFinal =
+        Number(clienteIdLS) > 0 ? Number(clienteIdLS) : Number(parceiroPedidoSelecionadoId || 0);
+      const clienteNomeFinal = String(clienteNomeLS || parceiroPedidoSelecionado || '');
+      setCodCliente(String(clienteIdFinal || '0'));
+      codCliente = String(clienteIdFinal || '0');
+      setParceiroPedidoSelecionado(clienteNomeFinal);
+      try {
+        if (clienteIdFinal > 0) {
+          localStorage.setItem('ClienteEscolhido', String(clienteIdFinal));
+        }
+        if (clienteNomeFinal) {
+          localStorage.setItem('ClienteNome', String(clienteNomeFinal));
+        }
+      } catch {}
       setFilialPedidoSelecionado(filialLS);
-      setCodEmpresa(filialLS);
-      codEmpresa = filialLS;
-      if (obsLS) {
-        setObservacao(obsLS);
-        observacao = obsLS;
+      if (filialLS) {
+        await applyEmpresaSelection(filialLS);
+      } else {
+        setCodEmpresa(filialLS);
+        codEmpresa = filialLS;
       }
+      let obsFinal = String(obsLS || '').trim();
+      if (!obsFinal) {
+        obsFinal = String(observacaoPedidoSelecionado || '').trim();
+      }
+      if (!obsFinal) {
+        try {
+          const db = await openDB<PgamobileDB>('pgamobile', versao);
+          const transaction = db.transaction('cabecalhoPedidoVenda', 'readonly');
+          const store = transaction.objectStore('cabecalhoPedidoVenda');
+          const todosCab = await store.getAll();
+          const palAlvo = String(palmpvLS || palMPVEscolhido || '').trim();
+          const cab = (todosCab as any[]).find((c: any) => {
+            if (palAlvo && String(c?.palMPV || '').trim() === palAlvo) return true;
+            if (pedidoIdLS > 0 && Number(c?.id || 0) === Number(pedidoIdLS)) return true;
+            return false;
+          });
+          obsFinal = String(
+            cab?.observacao ??
+              cab?.Observacao ??
+              cab?.observacaoPedido ??
+              cab?.observacaoPedidoVenda ??
+              cab?.Obs ??
+              cab?.obs ??
+              ''
+          ).trim();
+        } catch {}
+      }
+      setObservacao(obsFinal);
+      observacao = obsFinal;
+      try {
+        localStorage.setItem('PedidoInfoObservacao', String(obsFinal || ''));
+      } catch {}
       if (editAllowed) {
         if (palmpvLS) {
           setnumPedido(palmpvLS);
@@ -10017,9 +10142,36 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           statusPedidoSelecionado == 'Pendente' ||
           statusPedidoSelecionado == 'Rascunho' ||
           statusPedidoSelecionado == 'Falhou';
-        if (obsLS) {
-          setObservacao(obsLS);
-          observacao = obsLS;
+        const obsSeed = String(obsLS || observacaoPedidoSelecionado || '').trim();
+        if (obsSeed) {
+          setObservacao(obsSeed);
+          observacao = obsSeed;
+        } else {
+          try {
+            const db = await openDB<PgamobileDB>('pgamobile', versao);
+            const transaction = db.transaction('cabecalhoPedidoVenda', 'readonly');
+            const store = transaction.objectStore('cabecalhoPedidoVenda');
+            const todosCab = await store.getAll();
+            const cab = (todosCab as any[]).find(
+              (c: any) => String(c?.palMPV || '').trim() === String(palmpvLS || palMPVEscolhido || '').trim()
+            );
+            const obsDb = String(
+              cab?.observacao ??
+                cab?.Observacao ??
+                cab?.observacaoPedido ??
+                cab?.observacaoPedidoVenda ??
+                cab?.Obs ??
+                cab?.obs ??
+                ''
+            ).trim();
+            if (obsDb) {
+              setObservacao(obsDb);
+              observacao = obsDb;
+              try {
+                localStorage.setItem('PedidoInfoObservacao', String(obsDb));
+              } catch {}
+            }
+          } catch {}
         }
         if (palmpvLS) {
           if (editAllowed) {
@@ -10141,6 +10293,8 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           observacao = response?.observacao;
           setCodEmpresa(String(response?.filial));
           codEmpresa = String(response?.filial);
+          setCodCliente(String(response?.parceiroId || '0'));
+          codCliente = String(response?.parceiroId || '0');
           setFilialPedidoSelecionado(response?.filial);
           filialPedidoSelecionado = response?.filial;
           setParceiroPedidoSelecionadoId(response?.parceiroId);
@@ -10152,8 +10306,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           somaTotal = response.valor;
           setDataentrega(response?.dataEntrega.substring(0, 10));
           dataEntrega = response?.dataEntrega.substring(0, 10);
-          GetTabelaPreco();
-          GetiTensTabelaPrecoDuplicada();
+          setFilter(false);
+          filter = false;
+          await applyEmpresaSelection(String(response?.filial || ''));
+          await GetiTensTabelaPrecoDuplicada();
           setPesquisaPedido(false);
           pesquisaPedido = false;
           const itensResp = await api.get(
@@ -10905,6 +11061,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     sucess = 20;
     setShowMensageLoading(true);
     try {
+      localStorage.setItem('PedidoSelecionadoOrigem', 'api');
+    } catch {}
+    try {
       const resp = await api.get(`/api/CabecalhoPedidoVenda/palmpv/${pedido}`);
       const cab = resp?.data?.cabecalho ?? resp?.data ?? {};
       setPedidoSelecao(cab);
@@ -11134,6 +11293,9 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     sucess = 20;
     setShowMensageLoading(true);
     try {
+      localStorage.setItem('PedidoSelecionadoOrigem', 'local');
+    } catch {}
+    try {
       const db = await openDB<PgamobileDB>('pgamobile', versao);
       const transaction = db.transaction(
         ['cabecalhoPedidoVenda', 'tipoNegociacao'],
@@ -11160,8 +11322,16 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       tipPedSelecionado = escolhido.tipPed;
       setDataEntregaPedidoSelecionado(escolhido.dataEntrega);
       dataEntregaPedidoSelecionado = escolhido.dataEntrega;
-      setObservacaoPedidoSelecionado(escolhido.observacao);
-      observacaoPedidoSelecionado = escolhido.observacao;
+      const observacaoLocal = String(
+        escolhido?.observacao ??
+          (escolhido as any)?.Observacao ??
+          (escolhido as any)?.observacaoPedido ??
+          (escolhido as any)?.Obs ??
+          (escolhido as any)?.obs ??
+          ''
+      );
+      setObservacaoPedidoSelecionado(observacaoLocal);
+      observacaoPedidoSelecionado = observacaoLocal;
       setDataPedidoSelecionado(escolhido.data);
       dataPedidoSelecionado = escolhido.data;
       setNumeroPedidoSelecionado(escolhido.palMPV);
@@ -11192,7 +11362,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         data: escolhido.data,
         valor: escolhido.valor,
         dataEntrega: escolhido.dataEntrega,
-        observacao: escolhido.observacao,
+        observacao: observacaoLocal,
         pedido: escolhido.pedido,
         status: escolhido.status
       } as any;
@@ -11206,7 +11376,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         localStorage.setItem('PedidoInfoFilial', String(escolhido.filial));
         localStorage.setItem('PedidoInfoTipoNegociacaoId', String(escolhido.tipoNegociacaoId));
         localStorage.setItem('PedidoInfoTipPed', String(escolhido.tipPed));
-        localStorage.setItem('PedidoInfoObservacao', String(escolhido.observacao || ''));
+        localStorage.setItem('PedidoInfoObservacao', String(observacaoLocal || ''));
       } catch {}
       setPaginaItens(1);
       paginaItens = 1;
@@ -11503,7 +11673,11 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     itensPedidoSelecionado = [];
 
     const vendedor = Number(usuario.username);
-    if (isMobile && mobileListaTab === 'api') {
+    const origemModal = isMobile
+      ? String(localStorage.getItem('PedidoSelecionadoOrigem') || '')
+      : '';
+    const forceLocalOrigem = origemModal === 'local';
+    if (isMobile && mobileListaTab === 'api' && !forceLocalOrigem) {
       await api
         .get(
           `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId ?? idPedidoSelecionado}`
@@ -11571,7 +11745,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       const abrirViaListaNaoEnviado = String(
         localStorage.getItem('@Portal/PedidoEmDigitacao') || ''
       ) === 'true';
-      if (abrirViaListaNaoEnviado && pedidoSelIdLS > 0) {
+      if (abrirViaListaNaoEnviado && pedidoSelIdLS > 0 && !forceLocalOrigem) {
         try {
           const resp = await api.get(
             `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoSelIdLS}`
@@ -11643,17 +11817,19 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         const store = transaction.objectStore('itemPedidoVenda');
         setSucess(100);
         sucess = 100;
-        const todosItens = await store.getAll();
         const alvo = String(palMPVEscolhido).trim();
-        const itensVindoGet: iItemPedidoVenda[] = todosItens.filter((item: any) => {
-          const chave =
-            item?.palMPV ??
-            item?.palmpv ??
-            item?.pedidoId ??
-            item?.pedido ??
-            '';
-          return String(chave).trim() === alvo;
-        });
+        let itensVindoGet: iItemPedidoVenda[] = [];
+        if (alvo) {
+          try {
+            const idx = (store as any).index('palMPV');
+            itensVindoGet = (await idx.getAll(alvo as any)) as any;
+          } catch {
+            const todosItens = await store.getAll();
+            itensVindoGet = (todosItens as any[]).filter(
+              (item: any) => String(item?.palMPV || item?.palmpv || '').trim() === alvo
+            ) as any;
+          }
+        }
 
         console.log('itens vindo do get', itensVindoGet);
         setItensPedidoSelecionadoList(itensVindoGet);
@@ -11709,12 +11885,95 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         console.log('Ocorreu um erro', error);
       }
     } else {
-      await api
-        .get(
+      try {
+        const response = await api.get(
           `/api/ItemPedidoVenda/filter/pedidoId?pagina=1&totalpagina=999&pedidoId=${pedidoId ?? idPedidoSelecionado ?? Number(localStorage.getItem('PedidoSelecionadoId') || '0')}`
-        )
-        .then((response) => {
-          const itensVindoGet: iItemPedidoVenda[] = response.data.data;
+        );
+        let itensVindoGet: iItemPedidoVenda[] = response?.data?.data ?? [];
+        if (!Array.isArray(itensVindoGet) || itensVindoGet.length === 0) {
+          try {
+            const db = await openDB<PgamobileDB>('pgamobile', versao);
+            const transaction = db.transaction('itemPedidoVenda', 'readonly');
+            const store = transaction.objectStore('itemPedidoVenda');
+            const todosItens = await store.getAll();
+            const alvo = String(palMPVEscolhido).trim();
+            itensVindoGet = (todosItens as any[]).filter((item: any) => {
+              const chave =
+                item?.palMPV ??
+                item?.palmpv ??
+                item?.pedidoId ??
+                item?.pedido ??
+                '';
+              return String(chave).trim() === alvo;
+            }) as any;
+          } catch {}
+        }
+        setSucess(100);
+        sucess = 100;
+        setItensPedidoSelecionadoList(itensVindoGet);
+        itensPedidoSelecionadoList = itensVindoGet;
+        setTotalPaginasItens(Math.ceil(itensVindoGet.length / qtdePaginaItens));
+        totalPaginasItens = Math.ceil(itensVindoGet.length / qtdePaginaItens);
+        if (totalPaginasItens > 0 && paginaItens > totalPaginasItens) {
+          setPaginaItens(totalPaginasItens);
+          return;
+        }
+        setItensPedidoSelecionado(
+          itensVindoGet.slice(
+            (paginaItens - 1) * qtdePaginaItens,
+            paginaItens * qtdePaginaItens
+          ) || []
+        );
+        itensPedidoSelecionado =
+          itensVindoGet.slice(
+            (paginaItens - 1) * qtdePaginaItens,
+            paginaItens * qtdePaginaItens
+          ) || [];
+
+        let somaTotalIpiGet = 0;
+        itensVindoGet.forEach((item: any) => {
+          const ali = item?.produto?.aliIpi;
+          const valorCalculado = ali
+            ? item.valTotal + item.valTotal * (ali / 100)
+            : item.valTotal;
+          somaTotalIpiGet += valorCalculado;
+        });
+
+        setValorPedidoSelecionado(
+          itensVindoGet.reduce(
+            (accumulator: any, item: any) => accumulator + item.valTotal,
+            0
+          )
+        );
+        valorPedidoSelecionado = itensVindoGet.reduce(
+          (accumulator: any, item: any) => accumulator + item.valTotal,
+          0
+        );
+        setIpiEscolhido(somaTotalIpiGet);
+        IpiEscolhido = somaTotalIpiGet;
+        if (modalList) {
+          setShowMensageLoading(false);
+          setPesquisaPedido(true);
+          pesquisaPedido = true;
+        } else {
+          setShowMensageLoading(false);
+        }
+      } catch (error) {
+        try {
+          const db = await openDB<PgamobileDB>('pgamobile', versao);
+          const transaction = db.transaction('itemPedidoVenda', 'readonly');
+          const store = transaction.objectStore('itemPedidoVenda');
+          const todosItens = await store.getAll();
+          const alvo = String(palMPVEscolhido).trim();
+          const itensVindoGet: iItemPedidoVenda[] = (todosItens as any[]).filter((item: any) => {
+            const chave =
+              item?.palMPV ??
+              item?.palmpv ??
+              item?.pedidoId ??
+              item?.pedido ??
+              '';
+            return String(chave).trim() === alvo;
+          }) as any;
           setSucess(100);
           sucess = 100;
           setItensPedidoSelecionadoList(itensVindoGet);
@@ -11725,7 +11984,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             setPaginaItens(totalPaginasItens);
             return;
           }
-          console.log('Itens tabela preço:', itensVindoGet);
           setItensPedidoSelecionado(
             itensVindoGet.slice(
               (paginaItens - 1) * qtdePaginaItens,
@@ -11737,16 +11995,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
               (paginaItens - 1) * qtdePaginaItens,
               paginaItens * qtdePaginaItens
             ) || [];
-
-          console.log('itens do pedidoooooos', response.data.data);
           let somaTotalIpiGet = 0;
           itensVindoGet.forEach((item: any) => {
-            const valorCalculado = item.produto.aliIpi
-              ? item.valTotal + item.valTotal * (item.produto.aliIpi / 100)
+            const ali = item?.produto?.aliIpi;
+            const valorCalculado = ali
+              ? item.valTotal + item.valTotal * (ali / 100)
               : item.valTotal;
             somaTotalIpiGet += valorCalculado;
           });
-
           setValorPedidoSelecionado(
             itensVindoGet.reduce(
               (accumulator: any, item: any) => accumulator + item.valTotal,
@@ -11759,19 +12015,12 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
           );
           setIpiEscolhido(somaTotalIpiGet);
           IpiEscolhido = somaTotalIpiGet;
-          if (modalList) {
-            setShowMensageLoading(false);
-            setPesquisaPedido(true);
-            pesquisaPedido = true;
-          } else {
-            setShowMensageLoading(false);
-          }
-        })
-        .catch((error) => {
+        } catch {
           setLoading(false);
+        } finally {
           setShowMensageLoading(false);
-          console.log('Ocorreu um erro');
-        });
+        }
+      }
     }
   }
   async function GetitensPedidoVendaId() {
@@ -12587,7 +12836,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     if (String(dataEntrega).trim() === '') {
       setOperacaoMsg('É obrigatório informar a data de entrega.');
       setOperacaoProgress(100);
-      localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
     
@@ -12602,7 +12850,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
     if (!Array.isArray(itensSalvar) || itensSalvar.length === 0) {
       setOperacaoMsg('Não há itens válidos para enviar.');
       setOperacaoProgress(100);
-      localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
     
@@ -12629,7 +12876,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       setMsgErro2(
         `Nem todos os itens foram salvos.\nItens enviados: ${totalEsperado}\nItens salvos: ${totalSalvos}\nCabeçalho será marcado como Pendente.`
       );
-      await SalvarCabecalhoPendente();
+      await SalvarCabecalhoPendente(true);
       setOperacaoMsg(
         [
           'Falha ao salvar todos os itens.',
@@ -12638,7 +12885,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
         ].join('\n')
       );
       setOperacaoProgress(100);
-      localStorage.removeItem('@Portal/PedidoEmDigitacao');
       return;
     }
 
@@ -13185,8 +13431,26 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
   //==========================================================//
 
   function isValidInput(input: string) {
-    const regex = /^[a-zA-Z0-9\s.,]*$/;
-    return regex.test(input);
+    return input.length <= 2000;
+  }
+
+  async function persistObservacaoCabecalhoLocal(palmpv: string, obs: string) {
+    try {
+      const alvo = String(palmpv || '').trim();
+      if (!alvo) return;
+      const db = await openDB<PgamobileDB>('pgamobile', versao);
+      const transaction = db.transaction('cabecalhoPedidoVenda', 'readwrite');
+      const store = transaction.objectStore('cabecalhoPedidoVenda');
+      const todos = await store.getAll();
+      const cab = (todos as any[]).find(
+        (c: any) => String(c?.palMPV || '').trim() === alvo
+      );
+      if (cab) {
+        cab.observacao = String(obs || '');
+        await store.put(cab);
+      }
+      await transaction.done;
+    } catch {}
   }
 
   function handleObservacaoChange(
@@ -13199,6 +13463,10 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
       try {
         localStorage.setItem('PedidoInfoObservacao', String(inputValue || ''));
       } catch {}
+      const palmpvAtual = String(numPedido || palMPVEscolhido || '').trim();
+      if (palmpvAtual) {
+        persistObservacaoCabecalhoLocal(palmpvAtual, String(inputValue || ''));
+      }
     }
   }
 
@@ -14136,11 +14404,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     }
                                     value={codEmpresa}
                                     onChange={(e) => {
-                                      setCodEmpresa(e.target.value);
-                                      codEmpresa = e.target.value;
-                                      setPagina(1);
-                                      pagina = 1;
-                                      GetTabelaPreco();
+                                      applyEmpresaSelection(e.target.value);
                                     }}
                                   >
                                     {isMobile
@@ -14205,11 +14469,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                     }
                                     value={codEmpresa}
                                     onChange={(e) => {
-                                      setCodEmpresa(e.target.value);
-                                      codEmpresa = e.target.value;
-                                      setPagina(1);
-                                      pagina = 1;
-                                      GetTabelaPreco();
+                                      applyEmpresaSelection(e.target.value);
                                     }}
                                   >
                                     {isMobile
@@ -15025,7 +15285,7 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                         }}
                                         className="th2 th-tabela-pedido nome-grupo "
                                       >
-                                        <h1>LISTA DE PRODUTOS</h1>
+                                        <h1>LISTA DE PRODUTOSs</h1>
                                       </th>
                                     </>
                                   ) : (
@@ -16501,43 +16761,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
             <h1>LISTA DE PEDIDOS</h1>
           </Modal.Header>
           <Modal.Body>
-            {isMobile ? (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    className={
-                      mobileListaTab === 'api'
-                        ? 'btn btn-primary'
-                        : 'btn btn-outline-primary'
-                    }
-                    onClick={() => {
-                      setMobileListaTab('api');
-                      setPaginaList(1);
-                    }}
-                  >
-                    Pedidos Sincronizados
-                  </button>
-                  <button
-                    className={
-                      mobileListaTab === 'local'
-                        ? 'btn btn-primary'
-                        : 'btn btn-outline-primary'
-                    }
-                    onClick={async () => {
-                      setMobileListaTab('local');
-                      setPaginaList(1);
-                      await AtualizarPedidosLocaisPeloPalMPVDaApi();
-                      await GetListaCabecalho('local');
-                    }}
-                  >
-                    Pedidos Locais
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <></>
-            )}
-            {( !isMobile || (isMobile && mobileListaTab === 'api') ) ? (
             <div className="blocoLispesqPedidos">
               <div className="divradio" onClick={PesquisaTodos}>
                 <input
@@ -16579,7 +16802,6 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                 <p style={{ marginLeft: 8 }}>Á Enviar</p>
               </div>
             </div>
-            ) : null}
             <h1 className="h1Promotor"></h1>
             {isMobile ? <></> : <></>}
             <div className="table-responsive  tabela-responsiva-pedido-realizado">
@@ -16633,11 +16855,31 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                                 console.log('pesquisa', pesquisaPedido);
                                 setPaginaItens(1);
                                 paginaItens = 1;
-                          if (mobileListaTab === 'api') {
-                            GetPedidoVendaIdModalApi(item?.palMPV, item?.id);
-                          } else {
-                            GetPedidoVendaIdModalLocal(item?.palMPV, item?.id);
-                          }
+                                const statusNorm = String(item?.status || '')
+                                  .trim()
+                                  .toLowerCase()
+                                  .normalize('NFD')
+                                  .replace(/[\u0300-\u036f]/g, '');
+                                const isNaoEnviadoOuPendente =
+                                  statusNorm === 'nao enviado' ||
+                                  statusNorm === 'pendente';
+                                const isLocal =
+                                  String((item as any)?.sincronizado || '') ===
+                                  'N';
+                                const abrirLocal =
+                                  (isNaoEnviadoOuPendente && isLocal) ||
+                                  (isMobile && !isOnline);
+                                if (abrirLocal) {
+                                  GetPedidoVendaIdModalLocal(
+                                    item?.palMPV,
+                                    item?.id
+                                  );
+                                } else {
+                                  GetPedidoVendaIdModalApi(
+                                    item?.palMPV,
+                                    item?.id
+                                  );
+                                }
                               }
                             }}
                           >
@@ -16824,6 +17066,22 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                             localStorage.setItem('@Portal/PedidoEmDigitacao', 'true');
                             try {
                               localStorage.setItem('PedidoAbrirModalSelec', 'false');
+                              localStorage.setItem(
+                                'PedidoInfoObservacao',
+                                String(observacaoPedidoSelecionado || '')
+                              );
+                              if (Number(parceiroPedidoSelecionadoId || 0) > 0) {
+                                localStorage.setItem(
+                                  'ClienteEscolhido',
+                                  String(parceiroPedidoSelecionadoId || '0')
+                                );
+                              }
+                              if (parceiroPedidoSelecionado) {
+                                localStorage.setItem(
+                                  'ClienteNome',
+                                  String(parceiroPedidoSelecionado || '')
+                                );
+                              }
                             } catch {}
                             setShowMensageLoadingDup(true);
                             setmodalList(false);
@@ -16917,6 +17175,14 @@ WHERE PRO.CODPROD <> 0 AND PRO.USOPROD IN ('V','R')`;
                   </div>
                 </div>
               </div>
+              {String(observacaoPedidoSelecionado || '').trim() ? (
+                <h1 style={{ marginTop: 10, marginLeft: 5 }} className="super-sub-texto">
+                  Observação:{' '}
+                  <span style={{ color: '#2031ed' }}>
+                    {String(observacaoPedidoSelecionado || '')}
+                  </span>
+                </h1>
+              ) : null}
             <div className="separador"></div>
             <div className="table-responsive  tabela-responsiva-pedido-realizado">
               <div className=" table-wrap">
